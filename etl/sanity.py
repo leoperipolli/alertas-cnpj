@@ -33,14 +33,59 @@ def _campos_primeira_linha(caminho) -> int:
     return len(linha)
 
 
+def check_carga_completa(extracao: str) -> None:
+    """DURO. Carga parcial é o erro mais perigoso do pipeline inteiro.
+
+    A Receita quebra Estabelecimentos em 10 pedaços ARBITRÁRIOS — não por UF, não por
+    data. As empresas estão espalhadas aleatoriamente entre eles. Processar 6 de 10 não
+    dá "alguns estados": dá ~60% das empresas de todos os estados, e nada na saída
+    denuncia isso. O total nacional, a contagem de SP e o ranking inteiro saem
+    subestimados em silêncio.
+
+    E o check de ordem de grandeza NÃO pega: 60% de 350 mil ainda cai dentro da faixa
+    plausível. Por isso a completude precisa ser verificada aqui, contra o manifest —
+    contar linhas depois é tarde demais.
+    """
+    print("\n[1] Carga completa")
+    zips = config.ZIP_DIR / extracao
+    manifest_path = zips / "manifest.json"
+    if not manifest_path.exists():
+        raise SanityError(
+            f"sem manifest.json em {zips} — o download nao terminou. "
+            f"Rode: python -m etl.download --extracao {extracao}"
+        )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    baixados = {a["nome"] for a in manifest["arquivos"]}
+    esperados = set(layout.zips_para_baixar())
+    if faltando := esperados - baixados:
+        raise SanityError(f"CARGA PARCIAL: faltam {sorted(faltando)}")
+
+    for a in manifest["arquivos"]:
+        caminho = zips / a["nome"]
+        if not caminho.exists():
+            raise SanityError(f"{a['nome']} esta no manifest mas sumiu do disco")
+        if caminho.stat().st_size != a["bytes"]:
+            raise SanityError(
+                f"{a['nome']}: {caminho.stat().st_size} bytes em disco, "
+                f"{a['bytes']} no manifest — arquivo truncado"
+            )
+    print(f"    ok  {len(esperados)} zips, {manifest['total_bytes'] / 1e9:.2f} GB, "
+          f"tamanhos conferem com o manifest")
+
+
 def check_colunas(extracao: str) -> None:
     """DURO. Layout mudou -> aborta. É o embrião da quarentena (§7)."""
-    print("\n[1] Contagem de colunas por arquivo")
+    print("\n[2] Contagem de colunas por arquivo")
     for tabela, spec in layout.ARQUIVOS.items():
         pasta = config.CSV_DIR / extracao / tabela
         arquivos = sorted(pasta.glob(spec["glob"]))
-        if not arquivos:
-            raise SanityError(f"nenhum CSV para '{tabela}' em {pasta}")
+        # Um zip por CSV: menos CSVs do que zips = extração incompleta.
+        if len(arquivos) != len(spec["zips"]):
+            raise SanityError(
+                f"'{tabela}': {len(arquivos)} CSVs extraidos, {len(spec['zips'])} zips "
+                f"esperados. Carga parcial — nao continue."
+            )
         esperado = len(spec["colunas"])
         for caminho in arquivos:
             achou = _campos_primeira_linha(caminho)
@@ -55,7 +100,7 @@ def check_colunas(extracao: str) -> None:
 
 def check_privacidade(extracao: str, con, parquet) -> None:
     """DURO. LGPD por construção: dano existencial (§12)."""
-    print("\n[2] Privacidade (LGPD)")
+    print("\n[3] Privacidade (LGPD)")
 
     zips = config.ZIP_DIR / extracao
     presentes = {p.name for p in zips.glob("*.zip")}
@@ -89,7 +134,7 @@ def check_privacidade(extracao: str, con, parquet) -> None:
 
 def check_ordem_de_grandeza(con, parquet, data_ext: dt.date) -> None:
     """DURO. Pega a maioria dos erros de parse sozinho."""
-    print("\n[3] Ordem de grandeza")
+    print("\n[4] Ordem de grandeza")
     n = con.execute(f"SELECT count(*) FROM '{parquet.as_posix()}'").fetchone()[0]
     por_mes = n / (config.JANELA_DIAS / 30)
     print(f"    {n:,} empresas em {config.JANELA_DIAS} dias  =  ~{por_mes:,.0f}/mes")
@@ -103,7 +148,7 @@ def check_ordem_de_grandeza(con, parquet, data_ext: dt.date) -> None:
 
 def check_reativacao(con, data_ext: dt.date) -> None:
     """DURO. A armadilha que mais provavelmente passaria despercebida."""
-    print("\n[4] Armadilha da reativacao")
+    print("\n[5] Armadilha da reativacao")
     inicio = data_ext - dt.timedelta(days=config.JANELA_DIAS)
     n = con.execute(f"""
         SELECT count(*) FROM estabelecimentos
@@ -120,7 +165,7 @@ def check_reativacao(con, data_ext: dt.date) -> None:
 
 def check_uf(con, parquet) -> None:
     """MOLE. SP fora de ~25-35% = join de municipio/uf trocado."""
-    print("\n[5] Distribuicao por UF (SP deve ficar perto de ~30%)")
+    print("\n[6] Distribuicao por UF (SP deve ficar perto de ~30%)")
     linhas = con.execute(f"""
         SELECT uf, count(*) AS n,
                100.0 * count(*) / sum(count(*)) OVER () AS pct
@@ -138,7 +183,7 @@ def check_uf(con, parquet) -> None:
 
 def check_semanas(con, parquet, data_ext: dt.date) -> None:
     """MOLE. Mostra o efeito da semana parcial — o bot nao pode postar sobre ela."""
-    print("\n[6] Aberturas por semana (a ultima e' parcial, cortada pela extracao)")
+    print("\n[7] Aberturas por semana (a ultima e' parcial, cortada pela extracao)")
     linhas = con.execute(f"""
         SELECT date_trunc('week', data_abertura)::DATE AS semana, count(*) AS n
         FROM '{parquet.as_posix()}'
@@ -152,7 +197,7 @@ def check_semanas(con, parquet, data_ext: dt.date) -> None:
 
 def check_matriz_filial(con, data_ext: dt.date) -> None:
     """MOLE. A decisao que o plano deixou para tomar olhando o dado."""
-    print("\n[7] Matriz x filial (decisao de escopo)")
+    print("\n[8] Matriz x filial (decisao de escopo)")
     inicio = data_ext - dt.timedelta(days=config.JANELA_DIAS)
     matriz, filial = con.execute(f"""
         SELECT
@@ -171,7 +216,7 @@ def check_matriz_filial(con, data_ext: dt.date) -> None:
 
 def check_spot(con, parquet) -> None:
     """MOLE, mas OBRIGATORIO na primeira carga: o unico teste ponta a ponta real."""
-    print("\n[8] Spot-check — confira estes 5 CNPJs num site publico de CNPJ")
+    print("\n[9] Spot-check — confira estes 5 CNPJs num site publico de CNPJ")
     linhas = con.execute(f"""
         SELECT cnpj, razao_social, data_abertura, uf, municipio, cnae_descricao
         FROM '{parquet.as_posix()}'
@@ -195,6 +240,7 @@ def verificar(extracao: str, incluir_filiais: bool = False) -> None:
     print(f"SANITY — extracao {extracao} (data oficial da Receita: {data_ext})")
     print("=" * 72)
 
+    check_carga_completa(extracao)
     check_colunas(extracao)
     check_privacidade(extracao, con, parquet)
     check_ordem_de_grandeza(con, parquet, data_ext)

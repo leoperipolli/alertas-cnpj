@@ -1,0 +1,10 @@
+# Os dados brutos NUNCA entram no repo: sao ~25 GB e a pasta esta no OneDrive.
+# Eles vivem em C:\cnpj-data (env CNPJ_DATA_DIR).
+out/
+*.pyc
+__pycache__/
+.venv/
+.env
+
+# data/agregados.parquet e data/agenda_estado.json SAO commitados de proposito —
+# sao a unica coisa que o bot precisa para rodar no Actions, e cabem no git.

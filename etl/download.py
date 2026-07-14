@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import sys
+import time
 import zipfile
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from . import config
 from .layout import ATUAL as layout
 
 CHUNK = 1 << 20  # 1 MiB
+TENTATIVAS = 8   # por arquivo; cada uma retoma de onde parou
 
 
 def _url(extracao: str, nome: str) -> str:
@@ -38,6 +40,26 @@ def tamanho_remoto(sessao: requests.Session, url: str) -> int:
     return int(r.headers["Content-Length"])
 
 
+def _um_trecho(sessao: requests.Session, url: str, destino: Path,
+               ja_tem: int, total: int) -> int:
+    """Baixa de `ja_tem` até o fim. Devolve quantos bytes há no arquivo ao terminar."""
+    headers = {"Range": f"bytes={ja_tem}-"} if ja_tem else {}
+    modo = "ab" if ja_tem else "wb"
+
+    with sessao.get(url, headers=headers, stream=True, timeout=120) as r:
+        r.raise_for_status()
+        baixado = ja_tem
+        with open(destino, modo) as f:
+            for chunk in r.iter_content(CHUNK):
+                f.write(chunk)
+                baixado += len(chunk)
+                pct = 100 * baixado / total
+                print(f"\r    {pct:5.1f}%  {baixado / 1e6:7.0f}/{total / 1e6:.0f} MB",
+                      end="", flush=True)
+        print()
+    return baixado
+
+
 def baixar_um(sessao: requests.Session, extracao: str, nome: str, destino: Path) -> dict:
     url = _url(extracao, nome)
     total = tamanho_remoto(sessao, url)
@@ -51,22 +73,29 @@ def baixar_um(sessao: requests.Session, extracao: str, nome: str, destino: Path)
             destino.unlink()
             ja_tem = 0
 
-        headers = {"Range": f"bytes={ja_tem}-"} if ja_tem else {}
-        modo = "ab" if ja_tem else "wb"
         rotulo = "retomando" if ja_tem else "baixando"
         print(f"  {nome:26} {rotulo} ({total / 1e6:.0f} MB)", flush=True)
 
-        with sessao.get(url, headers=headers, stream=True, timeout=120) as r:
-            r.raise_for_status()
-            baixado = ja_tem
-            with open(destino, modo) as f:
-                for chunk in r.iter_content(CHUNK):
-                    f.write(chunk)
-                    baixado += len(chunk)
-                    pct = 100 * baixado / total
-                    print(f"\r    {pct:5.1f}%  {baixado / 1e6:7.0f}/{total / 1e6:.0f} MB",
-                          end="", flush=True)
-            print()
+        # O servidor da Receita derruba a conexão no meio de arquivo grande — não é
+        # exceção, é rotina. Sem retry, uma queda mata uma execução de horas e exige
+        # alguém reinvocar na mão; isso não sobrevive a rodar sozinho todo mês.
+        # Cada tentativa retoma do byte onde parou, então nada é rebaixado.
+        for tentativa in range(1, TENTATIVAS + 1):
+            try:
+                ja_tem = _um_trecho(sessao, url, destino, ja_tem, total)
+                break
+            except (requests.RequestException, ConnectionError, OSError) as e:
+                ja_tem = destino.stat().st_size if destino.exists() else 0
+                if tentativa == TENTATIVAS:
+                    raise RuntimeError(
+                        f"{nome}: {TENTATIVAS} tentativas falharam, "
+                        f"parou em {ja_tem / 1e6:.0f}/{total / 1e6:.0f} MB"
+                    ) from e
+                espera = min(2 ** tentativa, 60)
+                print(f"\n    conexao caiu ({type(e).__name__}) em "
+                      f"{ja_tem / 1e6:.0f} MB — retomando em {espera}s "
+                      f"[{tentativa}/{TENTATIVAS}]", flush=True)
+                time.sleep(espera)
 
     final = destino.stat().st_size
     if final != total:

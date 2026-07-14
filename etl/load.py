@@ -67,21 +67,47 @@ def _colunas_sql(colunas: list[str]) -> str:
 
 
 def criar_views(con, extracao: str) -> None:
-    """Registra uma view por tabela do layout, todas as colunas como VARCHAR."""
+    """Materializa cada tabela em Parquet (uma vez) e registra views sobre eles.
+
+    Por que Parquet no meio, e não views direto sobre o CSV:
+
+    1. O decoder CP1252 da extensão `encodings` no DuckDB 1.5.4 tem um bug de
+       pushdown: queries com filtro + projeção parcial sobre o scan completo
+       estouram com "Attempted to access index N within vector of size M".
+       A materialização decodifica com `SELECT *` — sem filtro, sem projeção —
+       que é o caminho que funciona, e todas as queries do pipeline passam a
+       rodar no leitor nativo de Parquet.
+    2. Decodificar 26 GB de CSV custa minutos; sem staging, CADA query (novas,
+       sanity, análises) pagava esse custo de novo.
+
+    O `.tmp` + rename dá atomicidade: um processo morto no meio da escrita não
+    deixa um parquet incompleto passando por staging pronto.
+    """
     opts = layout.CSV_OPTS
     for tabela, spec in layout.ARQUIVOS.items():
         padrao = (config.CSV_DIR / extracao / tabela / spec["glob"]).as_posix()
+        stg = config.STAGING_DIR / extracao / f"{tabela}.parquet"
+        if not stg.exists():
+            stg.parent.mkdir(parents=True, exist_ok=True)
+            print(f"  staging {tabela}...", flush=True)
+            tmp = stg.with_name(stg.name + ".tmp")
+            con.execute(f"""
+                COPY (
+                    SELECT * FROM read_csv(
+                        '{padrao}',
+                        columns = {{{_colunas_sql(spec["colunas"])}}},
+                        delim = '{opts["delim"]}',
+                        header = {str(opts["header"]).lower()},
+                        quote = '{opts["quote"]}',
+                        escape = '{opts["escape"]}',
+                        encoding = '{opts["encoding"]}',
+                        ignore_errors = false
+                    )
+                ) TO '{tmp.as_posix()}' (FORMAT PARQUET, COMPRESSION ZSTD)
+            """)
+            tmp.replace(stg)
         con.execute(f"""
-            CREATE OR REPLACE VIEW {tabela} AS
-            SELECT * FROM read_csv(
-                '{padrao}',
-                columns = {{{_colunas_sql(spec["colunas"])}}},
-                delim = '{opts["delim"]}',
-                header = {str(opts["header"]).lower()},
-                quote = '{opts["quote"]}',
-                encoding = '{opts["encoding"]}',
-                ignore_errors = false
-            )
+            CREATE OR REPLACE VIEW {tabela} AS SELECT * FROM '{stg.as_posix()}'
         """)
 
 

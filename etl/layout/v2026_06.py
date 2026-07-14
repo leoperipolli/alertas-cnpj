@@ -104,7 +104,20 @@ CSV_OPTS = {
     "delim": ";",
     "header": False,
     "quote": '"',
-    "encoding": "latin-1",
+    # A Receita escapa aspas DENTRO do valor dobrando-as (padrão RFC 4180):
+    # um nome fantasia `"AC-S"` vira o campo `"""AC-S"""`. Sem declarar o escape,
+    # o DuckDB auto-detecta "nenhum", lê a aspa dobrada como fim de campo, e a linha
+    # inteira desanda — junto com todas as colunas depois dela. Não é caso raro:
+    # acontece em Estabelecimentos0, linha 344.988.
+    "escape": '"',
+    # O conteúdo é latin-1 na prática, MAS a extração 2026-06 tem 5 bytes 0x8F
+    # (lixo digitado no campo de e-mail de meia dúzia de cadastros) e o decoder
+    # latin-1 do DuckDB é estrito: rejeita o ARQUIVO INTEIRO por causa deles.
+    # CP1252 é o superconjunto Windows que tolera esses bytes (exige a extensão
+    # `encodings`, carregada em config.duckdb_connect). O pandas com
+    # encoding='latin1' — o que os repos de referência usam — engole os bytes
+    # sem avisar; preferimos o comportamento explícito.
+    "encoding": "CP1252",
 }
 
 

@@ -110,14 +110,10 @@ CSV_OPTS = {
     # inteira desanda — junto com todas as colunas depois dela. Não é caso raro:
     # acontece em Estabelecimentos0, linha 344.988.
     "escape": '"',
-    # O conteúdo é latin-1 na prática, MAS a extração 2026-06 tem 5 bytes 0x8F
-    # (lixo digitado no campo de e-mail de meia dúzia de cadastros) e o decoder
-    # latin-1 do DuckDB é estrito: rejeita o ARQUIVO INTEIRO por causa deles.
-    # CP1252 é o superconjunto Windows que tolera esses bytes (exige a extensão
-    # `encodings`, carregada em config.duckdb_connect). O pandas com
-    # encoding='latin1' — o que os repos de referência usam — engole os bytes
-    # sem avisar; preferimos o comportamento explícito.
-    "encoding": "CP1252",
+    # latin-1 estrito, e isso só funciona porque a extração LIMPA os bytes
+    # 0x80-0x9F (indefinidos em latin-1 E em cp1252; o dump traz meia dúzia
+    # deles como lixo no campo de e-mail) — ver o _SCRUB em etl/load.py.
+    "encoding": "latin-1",
 }
 
 

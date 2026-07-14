@@ -35,13 +35,6 @@ def duckdb_connect():
     con.execute(f"SET memory_limit = '{DUCKDB_MEMORY_LIMIT}'")
     con.execute(f"SET temp_directory = '{TMP_DIR.as_posix()}'")
     con.execute("SET preserve_insertion_order = false")
-    # O CP1252 do layout vem da extensão `encodings` (o core só traz utf-8,
-    # latin-1 e utf-16). O INSTALL baixa uma vez e fica em cache local (~/.duckdb);
-    # o LOAD nas execuções seguintes é offline.
-    try:
-        con.execute("LOAD encodings")
-    except duckdb.Error:
-        con.execute("INSTALL encodings; LOAD encodings")
     return con
 
 

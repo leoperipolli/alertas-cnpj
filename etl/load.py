@@ -14,8 +14,21 @@ from . import config
 from .layout import ATUAL as layout
 
 
+# Bytes 0x80-0x9F sao indefinidos tanto no latin-1 estrito quanto no CP1252 do
+# DuckDB — e a extracao 2026-06 tem meia duzia deles (lixo digitado no campo de
+# e-mail de ~5 cadastros). O pandas com latin1 (repos de referencia) engole mudo;
+# o DuckDB rejeita o ARQUIVO INTEIRO. Trocamos por '?' na extracao: explicito,
+# contado, avisado — e o campo afetado nem esta na allowlist de saida.
+_SCRUB = bytes.maketrans(bytes(range(0x80, 0xA0)), b"?" * 32)
+_SUJOS = [bytes([b]) for b in range(0x80, 0xA0)]
+
+
 def extrair(extracao: str) -> None:
-    """Descompacta os zips em CSV_DIR/<extracao>/<tabela>/."""
+    """Descompacta os zips em CSV_DIR/<extracao>/<tabela>/, limpando bytes invalidos.
+
+    O translate preserva o tamanho, entao o check de idempotencia (tamanho em disco
+    == tamanho no zip) continua valendo como teste de completude.
+    """
     origem = config.ZIP_DIR / extracao
     for tabela, spec in layout.ARQUIVOS.items():
         destino = config.CSV_DIR / extracao / tabela
@@ -28,7 +41,16 @@ def extrair(extracao: str) -> None:
                     if saida.exists() and saida.stat().st_size == info.file_size:
                         continue
                     print(f"  {nome_zip:26} -> {info.filename}", flush=True)
-                    zf.extract(info, destino)
+                    sujos = 0
+                    with zf.open(info) as src, open(saida, "wb") as dst:
+                        while (buf := src.read(1 << 24)):
+                            limpo = buf.translate(_SCRUB)
+                            if limpo != buf:
+                                sujos += sum(buf.count(p) for p in _SUJOS)
+                            dst.write(limpo)
+                    if sujos:
+                        print(f"      aviso: {sujos} byte(s) 0x80-0x9F "
+                              f"substituido(s) por '?'", flush=True)
 
 
 def data_extracao(extracao: str) -> dt.date:

@@ -217,11 +217,15 @@ def check_matriz_filial(con, data_ext: dt.date) -> None:
 def check_spot(con, parquet) -> None:
     """MOLE, mas OBRIGATORIO na primeira carga: o unico teste ponta a ponta real."""
     print("\n[9] Spot-check — confira estes 5 CNPJs num site publico de CNPJ")
+    # ORDER BY random() com seed fixa, nao USING SAMPLE: o SAMPLE do DuckDB roda
+    # ANTES do WHERE em alguns planos e devolve zero linhas quando o filtro corta
+    # a amostra inteira.
+    con.execute("SELECT setseed(0.42)")
     linhas = con.execute(f"""
         SELECT cnpj, razao_social, data_abertura, uf, municipio, cnae_descricao
         FROM '{parquet.as_posix()}'
         WHERE NOT eh_mei
-        USING SAMPLE 5 ROWS (reservoir, 42)
+        ORDER BY random() LIMIT 5
     """).fetchall()
     for cnpj, razao, abertura, uf, mun, cnae in linhas:
         fmt = f"{cnpj[:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:]}"

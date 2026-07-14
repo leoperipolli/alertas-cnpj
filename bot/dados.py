@@ -33,12 +33,16 @@ def abrir(parquet=None) -> Dados:
         CREATE VIEW agregados AS
         SELECT * FROM '{caminho}' WHERE NOT semana_parcial
     """)
-    data_ext, ultima = con.execute("""
-        SELECT max(data_extracao), max(semana) FROM agregados
-    """).fetchone()
+    data_ext = con.execute("SELECT max(data_extracao) FROM agregados").fetchone()[0]
 
-    return Dados(con=con, data_extracao=data_ext,
-                 mes_ref=ultima.replace(day=1))
+    # O mês de referência é o último mês CALENDÁRIO FECHADO antes da extração —
+    # nunca o mês corrente dela. A extração de 13/06 tem só ~1,5 semana de junho;
+    # postar esse pedaço como "junho" seria dizer que o mês despencou 75%.
+    # (A janela de 90 dias sempre cobre o mês anterior inteiro, então maio está
+    # completo numa extração de junho.)
+    mes_ref = (data_ext.replace(day=1) - dt.timedelta(days=1)).replace(day=1)
+
+    return Dados(con=con, data_extracao=data_ext, mes_ref=mes_ref)
 
 
 def total_mes(d: Dados, mes: dt.date) -> int:

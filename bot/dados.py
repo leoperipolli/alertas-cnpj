@@ -94,6 +94,70 @@ def setor_por_uf(d: Dados, mes: dt.date, codigos: list[str],
     """, mes=mes, codigos=codigos, limite=limite)
 
 
+def total_por_uf(d: Dados, mes: dt.date) -> list[tuple[str, int]]:
+    """Aberturas por UF, TODAS as UFs (sem LIMIT) e sem a pseudo-UF `EX` (exterior).
+
+    Separado de `por_uf` de propósito: os cortes per capita precisam de todas as UFs
+    para ranquear por habitante, e `EX` não tem população — deixá-la contamina o
+    ranking (aparece com número absoluto mas sem denominador).
+    """
+    return d.q("""
+        SELECT uf, sum(contagem)::INT FROM agregados
+        WHERE date_trunc('month', semana) = $mes AND uf <> 'EX'
+        GROUP BY uf ORDER BY 2 DESC
+    """, mes=mes)
+
+
+def setor_por_uf_completo(d: Dados, mes: dt.date,
+                          codigos: list[str]) -> list[tuple[str, int]]:
+    """Como `setor_por_uf`, mas TODAS as UFs e sem `EX` — para os cortes per capita
+    e as razões entre setores, que ranqueiam sobre o conjunto inteiro."""
+    return d.q("""
+        SELECT uf, sum(contagem)::INT FROM agregados
+        WHERE date_trunc('month', semana) = $mes AND uf <> 'EX'
+          AND cnae_principal IN (SELECT unnest($codigos))
+        GROUP BY uf ORDER BY 2 DESC
+    """, mes=mes, codigos=codigos)
+
+
+def location_quotient(d: Dados, mes: dt.date, min_n: int = 40,
+                      min_tcn: int = 150) -> list[tuple[str, str, str, int, int, float]]:
+    """Quociente locacional (LQ) por (UF, CNAE): o quanto a UF abre daquele setor
+    ACIMA do que a fração nacional esperaria.
+
+        LQ = (peso do setor na UF) / (peso do setor no Brasil)
+
+    LQ=2 => a UF abre o dobro daquele setor, proporcionalmente, que a média. É o que
+    dá o "setor-assinatura" de cada estado (Sergipe/táxi, SC/confecção...).
+
+    Os pisos não são detalhe: sem `min_n` (aberturas do setor na UF) e `min_tcn`
+    (aberturas do setor no país), o maior LQ é sempre um par UF×CNAE minúsculo — 3
+    empresas num estado pequeno estouram a razão e viram um "assinatura" que é ruído.
+    Devolve (uf, cnae, descrição, n, total_nacional_do_cnae, lq).
+    """
+    return d.q("""
+        WITH est AS (
+            SELECT uf, cnae_principal, any_value(cnae_descricao) AS dsc,
+                   sum(contagem)::INT AS n
+            FROM agregados
+            WHERE date_trunc('month', semana) = $mes AND uf <> 'EX'
+              AND cnae_descricao IS NOT NULL
+            GROUP BY uf, cnae_principal
+        ),
+        tot_uf AS (SELECT uf, sum(n) AS tuf FROM est GROUP BY uf),
+        tot_cn AS (SELECT cnae_principal, sum(n) AS tcn FROM est GROUP BY cnae_principal),
+        tot    AS (SELECT sum(n) AS t FROM est)
+        SELECT e.uf, e.cnae_principal, e.dsc, e.n, tot_cn.tcn,
+               (e.n * 1.0 / tot_uf.tuf) / (tot_cn.tcn * 1.0 / tot.t) AS lq
+        FROM est e
+        JOIN tot_uf USING (uf)
+        JOIN tot_cn USING (cnae_principal),
+        tot
+        WHERE e.n >= $min_n AND tot_cn.tcn >= $min_tcn
+        ORDER BY lq DESC
+    """, mes=mes, min_n=min_n, min_tcn=min_tcn)
+
+
 def crescimento_cnae(d: Dados, mes: dt.date, anterior: dt.date,
                      minimo: int = 300) -> list[tuple[str, int, int, float]]:
     """CNAEs que mais cresceram vs o mês anterior.

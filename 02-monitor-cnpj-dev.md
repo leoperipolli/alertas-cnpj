@@ -545,6 +545,33 @@ Ajuste fino de conversão (funil prévia→pagante medido), filtros pedidos por 
 
 ---
 
-## Relação com os outros produtos
+## Engajamento/molde de post
 
-Herda do bot de futebol os módulos de render/publicação e os padrões operacionais (cron gratuito, dead man's switch, golden tests). Exporta para a automação de WhatsApp ([03-automacao-whatsapp-dev.md](03-automacao-whatsapp-dev.md)) o billing Asaas com webhooks idempotentes, a VPS, o padrão de backup/runbook e — principalmente — o público e o upsell: o assinante recebe leads aqui e contrata lá o meio de contatá-los. Nota de fronteira importante: **este produto usa a Cloud API oficial (o número é seu, o risco é seu); o produto 3 usa Baileys local (o número é do cliente, na máquina do cliente)** — as duas escolhas são opostas e ambas corretas, porque a posição de quem opera o número é oposta.
+O que o algoritmo do X realmente pesa
+Ordem de importância aproximada, do que se sabe do algoritmo (parte é open source desde 2023, resto é observação):
+1. Tempo de permanência no post. Muito acima de like ou retweet. Se a pessoa parou pra olhar teu gráfico por 4 segundos, isso vale mais que um like. Isso privilegia imagem com dado denso o suficiente pra prender o olho, mas legível o suficiente pra não confundir. Gráfico com 3 números destacados > gráfico com 20.
+2. Reply. Reply pesa 27x mais que like, retweet pesa 20x mais que like (esses números saíram do código quando foi aberto — podem ter mudado, mas a hierarquia continua). Então posts que provocam pergunta ou discordância viralizam mais que os que só informam. "Curitiba abriu 3x mais salões que Porto Alegre proporcionalmente" gera reply porque curitibano vem defender ou zoar. "42 empresas abertas hoje em SP" não gera nada.
+3. Bookmark. Também muito valorizado desde 2023. Post que a pessoa quer voltar depois (ex: "top 10 CNAEs que mais abriram em outubro no seu estado"). Ranking + útil = bookmark.
+4. Profile visit + follow após o post. Se teu post fez alguém clicar no perfil e seguir, o algoritmo entende que teu conteúdo tem valor duradouro, não só naquela impressão.
+5. Penalidade por link externo. Isso é sério — post com link no corpo tem alcance cortado em 30–50%. Sempre coloque link em reply do próprio post, nunca no post principal. Vale a pena testar em teu próprio caso.
+6. Penalidade por post automatizado detectado. Se o algoritmo cheira "bot" (mesma cadência, mesmo formato, hashtag genérica), corta alcance. Precisa variar horário em ±30min, variar estrutura da legenda, variar formato do gráfico.
+Design das imagens
+Formato. 16:9 renderiza melhor que quadrado no timeline hoje. Testa 1600x900. Evita 4:5 (é ruim no X, bom no Instagram).
+Cores. O erro comum é usar paleta viva (verde neon, azul saturado) tentando "chamar atenção". No X, funciona o oposto: paleta sóbria com um único acento de cor. Fundo cinza escuro (#1e1e1e) ou branco off (#f5f5f0), texto quase preto ou quase branco, e uma cor de destaque só, usada apenas nos números que importam.
+Cor de destaque que funciona no contexto brasileiro/financeiro: um verde meio escuro (#2d7a3e) ou um laranja terroso (#c65d1e). Evita azul do Twitter (#1d9bf0) porque é a cor da UI e visualmente some. Evita vermelho puro (parece alarme). Evita amarelo (ilegível em muitos monitores).
+Fonte. Uma família, dois pesos. Inter, IBM Plex Sans ou Space Grotesk funcionam bem — são legíveis em thumbnail. Nunca use fonte serif em gráfico do X (fica borrada em mobile). Nunca use mais de duas famílias.
+Hierarquia. O número principal precisa ser absurdamente grande — tipo 120pt no meio da imagem. O leitor precisa ler o número antes de entender o gráfico. Isso é o oposto do que se ensina em design corporativo, mas é o que funciona no scroll rápido.
+Regra prática: se você abrir tua imagem em thumbnail de 200px de largura e não conseguir ler o número principal, refaz.
+Emojis
+Uso limitado e funcional, não decorativo. Um emoji no início da legenda pra sinalizar categoria ajuda a bater o olho no timeline (📊 pra dado, 🚨 pra alerta, 🏢 pra empresa). Nunca mais de dois na legenda toda. Zero emoji dentro da imagem — polui e envelhece o design rápido.
+Emoji funciona como sinal, não como decoração. Se você tirar e a legenda ficar exatamente igual em sentido, era decoração.
+Estrutura da legenda
+Fórmula que engaja bem no formato "conta de dado":
+
+Linha 1: o gancho contraintuitivo, com número. "42 padarias abriram em BH essa semana. É a maior semana do ano."
+Linha 2 em branco.
+Linha 3: um contexto que aprofunda. "Média do ano é 18/semana. Concentradas em 3 bairros."
+Linha 4 em branco.
+Linha 5 (opcional): uma pergunta aberta ou observação que provoca. "Alguém arrisca por quê?" — isso duplica reply.
+
+Evita: hashtag (mata alcance), emoji decorativo, "confira o gráfico abaixo", "acesse nosso perfil". Tudo isso o algoritmo pesa negativo por parecer marketing.

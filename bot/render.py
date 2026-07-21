@@ -10,26 +10,40 @@ certa não é colorir tudo: é dar destaque a ele e apagar o resto.
 """
 
 from pathlib import Path
+from typing import Callable
 
+import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 
 from . import tema
 
 
-def _fmt(n: int) -> str:
-    return f"{n:,}".replace(",", ".")
+def _fmt(n: float) -> str:
+    return f"{round(n):,}".replace(",", ".")
+
+
+def fmt_decimal(casas: int = 1) -> Callable[[float], str]:
+    """Formatador para valores fracionários (per capita, razões): '3,0', '5,8'.
+    Vírgula decimal porque o público é brasileiro."""
+    return lambda v: f"{v:.{casas}f}".replace(".", ",")
 
 
 def ranking(
     destino: Path,
     titulo: str,
     subtitulo: str,
-    itens: list[tuple[str, int]],
+    itens: list[tuple[str, float]],
     data_extracao,
     destaque: str | None = None,
+    fmt: Callable[[float], str] = _fmt,
+    fonte_extra: str | None = None,
 ) -> Path:
-    """Barras horizontais, uma cor. `destaque` apaga o resto e realça um item."""
+    """Barras horizontais, uma cor. `destaque` apaga o resto e realça um item.
+
+    `fmt` formata o rótulo do valor (inteiro por padrão; use `fmt_decimal()` no
+    per capita/razão). `fonte_extra` acrescenta uma segunda fonte no crédito.
+    """
     fig = tema.nova_figura()
 
     itens = sorted(itens, key=lambda t: t[1], reverse=True)
@@ -57,13 +71,13 @@ def ranking(
         tema.barra_horizontal(ax, y, valor, cor, px_x, px_y)
 
         forte = destaque is None or rotulo == destaque
-        ax.text(valor + maximo * 0.012, y, _fmt(valor),
+        ax.text(valor + maximo * 0.012, y, fmt(valor),
                 va="center", ha="left", fontsize=13,
                 color=tema.TINTA if forte else tema.MUDO,
                 weight=600 if forte else "normal")
 
     tema.titular(fig, titulo, subtitulo)
-    tema.creditar(fig, data_extracao)
+    tema.creditar(fig, data_extracao, fonte_extra)
     fig.savefig(destino, dpi=tema.DPI)
     plt.close(fig)
     return destino
@@ -121,6 +135,133 @@ def comparacao(
                     columnspacing=1.6)
     for texto in leg.get_texts():
         texto.set_color(tema.TINTA_2)  # texto nunca veste a cor da série
+
+    tema.titular(fig, titulo, subtitulo)
+    tema.creditar(fig, data_extracao)
+    fig.savefig(destino, dpi=tema.DPI)
+    plt.close(fig)
+    return destino
+
+
+def destaque_numero(
+    destino: Path,
+    titulo: str,
+    numero: str,
+    legenda: str,
+    nota: str,
+    data_extracao,
+    fonte_extra: str | None = None,
+) -> Path:
+    """Número-herói: um único número enorme como foco.
+
+    O molde do X premia tempo de permanência, e um número gigante é lido ANTES de
+    qualquer gráfico — é o que faz o olho parar no scroll. Sem plot: é um 'stat tile',
+    então nada de barras aqui. `nota` carrega a virada (ex.: 'SP é só o 10º')."""
+    fig = tema.nova_figura()
+    corpo_titulo = 26
+    while corpo_titulo > 18 and \
+            tema._largura_px(fig, titulo, corpo_titulo) > 0.90 * tema.LARGURA_PX:
+        corpo_titulo -= 1
+    fig.text(0.055, 0.92, titulo, fontsize=corpo_titulo, weight=600,
+             color=tema.TINTA, va="top")
+    fig.text(0.055, 0.55, numero, fontsize=150, weight=600, color=tema.SERIE_1,
+             va="center", ha="left")
+
+    # Legenda e nota quebram em várias linhas: sem isso o texto sai pela borda.
+    y = 0.30
+    for linha in tema.envolver(fig, legenda, 20):
+        fig.text(0.055, y, linha, fontsize=20, color=tema.TINTA_2, va="top")
+        y -= 0.068
+    y -= 0.012
+    for linha in tema.envolver(fig, nota, 16):
+        fig.text(0.055, y, linha, fontsize=16, color=tema.MUDO, va="top")
+        y -= 0.052
+
+    tema.creditar(fig, data_extracao, fonte_extra)
+    fig.savefig(destino, dpi=tema.DPI)
+    plt.close(fig)
+    return destino
+
+
+def lista_cartao(
+    destino: Path,
+    titulo: str,
+    subtitulo: str,
+    linhas: list[tuple[str, str, str]],
+    data_extracao,
+    fonte_extra: str | None = None,
+) -> Path:
+    """Card em lista: uma linha por item (esquerda em negrito, meio, valor à direita).
+
+    É a forma certa para 'o setor-assinatura de cada estado' — não é ranking de uma
+    grandeza só, é um par estado→setor por linha. Um mapa exigiria shapefile; a lista
+    diz o mesmo e é legível no thumbnail."""
+    fig = tema.nova_figura()
+    tema.titular(fig, titulo, subtitulo)
+
+    # Espaçamento FIXO com o bloco centralizado na área útil. Esticar as linhas para
+    # preencher a altura funciona com 8 itens e vira um vão absurdo com 2 — o card da
+    # "dupla" tem exatamente 2.
+    topo, base = 0.74, 0.135
+    passo = min(0.085, (topo - base) / max(len(linhas) - 1, 1))
+    inicio = topo - ((topo - base) - passo * (len(linhas) - 1)) / 2
+    ys = [inicio - passo * i for i in range(len(linhas))]
+    for (esq, meio, val), y in zip(linhas, ys):
+        fig.text(0.055, y, esq, fontsize=17, weight=600, color=tema.TINTA, va="center")
+        fig.text(0.135, y, tema.encurtar(meio, 44), fontsize=15, color=tema.TINTA_2,
+                 va="center")
+        fig.text(0.945, y, val, fontsize=17, weight=600, color=tema.SERIE_1,
+                 va="center", ha="right")
+
+    tema.creditar(fig, data_extracao, fonte_extra)
+    fig.savefig(destino, dpi=tema.DPI)
+    plt.close(fig)
+    return destino
+
+
+def dispersao(
+    destino: Path,
+    titulo: str,
+    subtitulo: str,
+    pontos: list[tuple[str, float, float]],
+    rotulo_x: str,
+    rotulo_y: str,
+    data_extracao,
+    rotular: set[str] | None = None,
+) -> Path:
+    """Dispersão UF a UF com reta de tendência — a forma do 'gráfico espúrio'.
+
+    Dois setores sem relação nenhuma que andam juntos entre estados: a reta quase
+    perfeita É a piada, e o disclaimer 'correlação não é causa' vai na legenda do
+    post."""
+    fig = tema.nova_figura()
+    rotular = rotular or set()
+    # Base alta o bastante para o rótulo do eixo X não encostar na linha de crédito.
+    ax = fig.add_axes([0.085, 0.205, 0.88, 0.565])
+
+    xs = [x for _, x, _ in pontos]
+    ys = [y for _, _, y in pontos]
+
+    # Reta de tendência primeiro (zorder baixo), pontos por cima.
+    if len(xs) >= 2:
+        a, b = np.polyfit(xs, ys, 1)
+        lo, hi = min(xs), max(xs)
+        ax.plot([lo, hi], [a * lo + b, a * hi + b], color=tema.APAGADO,
+                linewidth=2, zorder=1)
+    # Anel de 2px na cor da superfície separa pontos que se encostam.
+    ax.scatter(xs, ys, s=110, color=tema.SERIE_1, edgecolor=tema.SUPERFICIE,
+               linewidth=1.5, zorder=3)
+
+    for uf, x, y in pontos:
+        if uf in rotular:
+            ax.annotate(uf, (x, y), textcoords="offset points", xytext=(7, 5),
+                        fontsize=12, color=tema.TINTA_2, weight=600)
+
+    ax.set_xlabel(rotulo_x, fontsize=12, color=tema.TINTA_2)
+    ax.set_ylabel(rotulo_y, fontsize=12, color=tema.TINTA_2)
+    ax.tick_params(length=0, labelsize=10, colors=tema.MUDO)
+    ax.grid(True, color=tema.GRADE, linewidth=0.8, zorder=0)
+    ax.margins(0.08)
 
     tema.titular(fig, titulo, subtitulo)
     tema.creditar(fig, data_extracao)

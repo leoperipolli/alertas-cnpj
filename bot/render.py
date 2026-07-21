@@ -207,18 +207,33 @@ def destaque_numero(
         corpo_titulo -= 1
     fig.text(0.055, 0.92, titulo, fontsize=corpo_titulo, weight=600,
              color=tema.TINTA, va="top")
-    fig.text(0.055, 0.55, numero, fontsize=150, weight=600, color=tema.SERIE_1,
-             va="center", ha="left")
 
-    # Legenda e nota quebram em várias linhas: sem isso o texto sai pela borda.
-    y = 0.30
-    for linha in tema.envolver(fig, legenda, 20):
+    # O bloco de texto é montado DE BAIXO PARA CIMA, a partir de um piso acima da
+    # linha de crédito. Ancorar pelo topo estourava por baixo quando legenda e nota
+    # quebravam em duas linhas cada — a última linha ia parar em cima do crédito.
+    linhas_legenda = tema.envolver(fig, legenda, 20)
+    linhas_nota = tema.envolver(fig, nota, 16)
+    passo_legenda, passo_nota, folga = 0.068, 0.052, 0.014
+    altura = (len(linhas_legenda) * passo_legenda + folga
+              + len(linhas_nota) * passo_nota)
+    piso = 0.135
+    y = piso + altura
+
+    # O número herói ocupa o que sobrou entre o título e o bloco, e encolhe se o
+    # texto crescer. Assim ele é sempre o maior elemento da peça sem invadir nada.
+    teto = 0.84
+    espaco_px = max((teto - y), 0.1) * tema.ALTURA_PX
+    corpo_numero = int(min(150, espaco_px * 0.86 / (tema.DPI / 72)))
+    fig.text(0.055, (teto + y) / 2, numero, fontsize=corpo_numero, weight=600,
+             color=tema.SERIE_1, va="center", ha="left")
+
+    for linha in linhas_legenda:
         fig.text(0.055, y, linha, fontsize=20, color=tema.TINTA_2, va="top")
-        y -= 0.068
-    y -= 0.012
-    for linha in tema.envolver(fig, nota, 16):
+        y -= passo_legenda
+    y -= folga
+    for linha in linhas_nota:
         fig.text(0.055, y, linha, fontsize=16, color=tema.MUDO, va="top")
-        y -= 0.052
+        y -= passo_nota
 
     tema.creditar(fig, data_extracao, fonte_extra)
     fig.savefig(destino, dpi=tema.DPI)

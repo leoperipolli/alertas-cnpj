@@ -60,8 +60,10 @@ def _mes_ext(d: D.Dados) -> str:
     return f"{MESES[d.mes_ref.month]}/{d.mes_ref.year}"
 
 
-def _fonte(d: D.Dados) -> str:
-    return f"Dados abertos da Receita Federal, extração de {d.data_extracao:%d/%m/%Y}."
+# A fonte NÃO vai no texto do tweet: `tema.creditar` já a imprime no rodapé de toda
+# imagem, e a imagem viaja junto do post. Repetir custava ~57 dos 280 caracteres para
+# dizer duas vezes a mesma coisa. A honestidade de cadência (RNF-3) segue garantida
+# pela imagem — se um dia um corte publicar sem imagem, a linha tem que voltar ao texto.
 
 
 def placar_nacional(d: D.Dados, saida: Path) -> Post:
@@ -80,8 +82,7 @@ def placar_nacional(d: D.Dados, saida: Path) -> Post:
     texto = (
         f"{_n(total)} empresas novas abriram no Brasil em {mes}.\n\n"
         f"{lider} sozinho respondeu por {_n(n_lider)} delas — {pct:.0f}% do país.\n\n"
-        f"Um estado só concentra {pct:.0f}% das aberturas. Isso é demais?\n\n"
-        f"{_fonte(d)}"
+        f"Um estado só concentra {pct:.0f}% das aberturas. Isso é demais?"
     )
     alt = ("Gráfico de barras com as aberturas de empresas por estado em "
            f"{mes}. {'; '.join(f'{u}: {_n(v)}' for u, v in ufs)}.")
@@ -107,7 +108,7 @@ def ranking_cnae(d: D.Dados, saida: Path, uf: str | None = None) -> Post:
         f"A atividade que mais abriu empresa {'em ' + uf if uf else 'no Brasil'} "
         f"em {mes}:\n\n"
         f"{tema.encurtar(topo, 60)} — {_n(n_topo)} CNPJs novos.\n\n"
-        f"Esperava ver esse setor no topo?\n\n{_fonte(d)}"
+        f"Esperava ver esse setor no topo?"
     )
     alt = f"Ranking de atividades econômicas {onde} em {mes}. Topo: {topo}, {_n(n_topo)}."
     return Post("ranking_cnae", texto, img, alt, {"uf": uf})
@@ -130,7 +131,7 @@ def recorte_cidade(d: D.Dados, saida: Path, uf: str | None = None) -> Post:
         f"1. {topo} — {_n(n_topo)}\n"
         f"2. {itens[1][0]} — {_n(itens[1][1])}\n"
         f"3. {itens[2][0]} — {_n(itens[2][1])}\n\n"
-        f"Sua cidade entrou na lista?\n\n{_fonte(d)}"
+        f"Sua cidade entrou na lista?"
     )
     alt = f"Ranking de municípios por aberturas em {mes}. Topo: {topo}, {_n(n_topo)}."
     return Post("recorte_cidade", texto, img, alt, {"uf": uf})
@@ -156,7 +157,7 @@ def setor_curioso(d: D.Dados, saida: Path, slug: str) -> Post:
     texto = (
         f"Abriram {_n(total)} {setor.rotulo} no Brasil em {mes}.\n\n"
         f"{lider} levou {_n(n_lider)} delas.\n\n"
-        f"Faz sentido {lider} liderar em {setor.rotulo}?\n\n{_fonte(d)}"
+        f"Faz sentido {lider} liderar em {setor.rotulo}?"
     )
     alt = (f"Aberturas de {setor.rotulo} por estado em {mes}. "
            f"Líder: {lider} com {_n(n_lider)}.")
@@ -183,7 +184,7 @@ def duelo_regional(d: D.Dados, saida: Path, uf_a: str, uf_b: str) -> Post:
     texto = (
         f"{uf_a} x {uf_b} em {mes}: os setores que mais abriram em {uf_a}, "
         f"e quanto {uf_b} abriu de cada um.\n\n"
-        f"Quem você achava que abriria mais?\n\n{_fonte(d)}"
+        f"Quem você achava que abriria mais?"
     )
     alt = f"Comparação de aberturas por setor entre {uf_a} e {uf_b} em {mes}."
     return Post("duelo_regional", texto, img, alt, {"uf_a": uf_a, "uf_b": uf_b})
@@ -225,7 +226,7 @@ def anomalia(d: D.Dados, saida: Path) -> Post:
         f"O setor que mais acelerou em {mes}:\n\n"
         f"{tema.encurtar(cnae, 55)} — {_n(antes)} aberturas no mês anterior, "
         f"{_n(agora)} agora. +{var:.0f}%.\n\n"
-        f"Alguém arrisca por quê?\n\n{_fonte(d)}"
+        f"Alguém arrisca por quê?"
     )
     alt = f"Setores com maior crescimento de aberturas em {mes}. Topo: {cnae}, +{var:.0f}%."
     return Post("anomalia", texto, img, alt)
@@ -287,19 +288,33 @@ def ranking_per_capita(d: D.Dados, saida: Path, slug: str | None = None,
         destaque=lider, fmt=render.fmt_decimal(1), fonte_extra=populacao.FONTE,
     )
 
-    virada = f"São Paulo, o maior do país, é só o {pos_sp}º." if pos_sp else ""
     # A fonte da população não repete no texto: ela já vai no crédito da imagem, e
     # aqui cada caractere disputa o limite de 280 do X.
-    texto = (
-        f"Quem mais abre {rotulo} por habitante no Brasil é {lider}: "
-        f"{_dec(taxa)} por 100 mil hab em {mes}.\n\n"
-        f"{virada}\n\n"
-        f"Você imaginava {lider} na frente de SP?\n\n"
-        f"{_fonte(d)}"
-    )
+    abertura = (f"Quem mais abre {rotulo} por habitante no Brasil é {lider}: "
+                f"{_dec(taxa)} por 100 mil hab em {mes}.")
+    if lider == "SP":
+        # SP lidera ATÉ por habitante em alguns setores (loja de roupa, petshop).
+        # A virada some, mas o fato vira outro e continua valendo post: a conta já
+        # está dividida por população, então dessa vez não é efeito do tamanho.
+        # Sem esta ramificação a copy saía absurda — "SP é só o 1º", "SP na frente
+        # de SP" — e isso pode acontecer com qualquer setor a cada extração.
+        texto = (
+            f"SP é quem mais abre {rotulo} por habitante no Brasil: "
+            f"{_dec(taxa)} por 100 mil hab em {mes}.\n\n"
+            f"Dessa vez não dá para dizer que é só porque SP é grande — a conta "
+            f"já está dividida por população.\n\n"
+            f"O que concentra tanto esse setor em SP?"
+        )
+    elif pos_sp:
+        texto = (f"{abertura}\n\n"
+                 f"São Paulo, o maior do país, é só o {pos_sp}º.\n\n"
+                 f"Você imaginava {lider} na frente de SP?")
+    else:
+        texto = f"{abertura}\n\nEsperava esse estado no topo?"
+
     alt = (f"Aberturas de {rotulo} por 100 mil habitantes por estado em {mes}. "
            f"Líder: {lider} com {_dec(taxa)}"
-           + (f"; São Paulo em {pos_sp}º." if pos_sp else "."))
+           + (f"; São Paulo em {pos_sp}º." if pos_sp and lider != "SP" else "."))
     return Post("ranking_per_capita", texto, img, alt, {"setor": slug})
 
 
@@ -330,7 +345,7 @@ def razao_setores(d: D.Dados, saida: Path, chave: str, titulo: str, subtitulo: s
         d.data_extracao, destaque=lider, fmt=render.fmt_decimal(1),
     )
     texto = (f"{frase.format(lider=lider, r=_dec(r), mes=mes)}\n\n"
-             f"{pergunta}\n\n{_fonte(d)}")
+             f"{pergunta}")
     alt = f"{titulo} por estado em {mes}. Líder: {lider} com {_dec(r)}."
     return Post("razao_setores", texto, img, alt, {"chave": chave})
 
@@ -367,9 +382,8 @@ def dupla_per_capita(d: D.Dados, saida: Path, slug_a: str, slug_b: str,
     texto = (
         f"Coincidência de {mes}: {foco} está no topo do país ao mesmo tempo em "
         f"{rot_a} e em {rot_b}, por habitante.\n\n"
-        f"Correlação não é causa.\n\n"
-        f"O que explica {foco} liderar os dois?\n\n"
-        f"{_fonte(d)}"
+        f"Uma coisa não causa a outra — mas que é engraçado, é.\n\n"
+        f"O que explica {foco} liderar os dois?"
     )
     alt = (f"{foco} aparece em {pos_a}º em {rot_a} e em {pos_b}º em {rot_b} "
            f"por 100 mil habitantes, {mes}.")
@@ -413,7 +427,7 @@ def setor_assinatura(d: D.Dados, saida: Path) -> Post:
         f"O que cada estado abre MUITO acima da média do Brasil, em {mes}.\n\n"
         f"O caso mais extremo: {uf_topo}, com {lq_topo} a média nacional em "
         f"{tema.encurtar(dsc_topo, 40).lower()}.\n\n"
-        f"Achou a cara do seu estado?\n\n{_fonte(d)}"
+        f"Achou a cara do seu estado?"
     )
     alt = ("Setor mais sobre-representado de cada estado em " + mes + ": "
            + "; ".join(f"{u}: {t}" for u, _, t in linhas) + ".")
@@ -464,7 +478,7 @@ def lq_hero(d: D.Dados, saida: Path, chave: str, codigos: list[str],
         f"{_dec(lq)}× a média nacional em {mes}.\n\n"
         f"Não é o maior número absoluto — é o mais desproporcional. "
         f"O 2º, {uf_2}, fica em {_dec(lq_2)}×.\n\n"
-        f"Alguém arrisca por quê?\n\n{_fonte(d)}"
+        f"Alguém arrisca por quê?"
     )
     alt = (f"{uf} abre {_dec(lq)} vezes mais {rotulo} que a média nacional, "
            f"proporcionalmente, em {mes}; 2º é {uf_2} com {_dec(lq_2)}.")
@@ -487,18 +501,20 @@ def correlacao_espuria(d: D.Dados, saida: Path, chave: str,
     if len(pontos) < 5:
         raise ValueError(f"poucos pontos para '{chave}'")
 
+    # O título nomeia o par em vez de um genérico ("duas coisas sem relação"): quem
+    # bate o olho no timeline precisa saber DE QUE setores o gráfico fala, e o par
+    # muda a cada mês.
     img = render.dispersao(
         saida / f"espuria_{chave}.png",
-        "Duas coisas sem relação que andam juntas",
+        f"{sa.rotulo.capitalize()} e {sb.rotulo} andam juntas",
         f"Cada ponto é um estado — aberturas em {mes}",
         pontos, sa.rotulo.capitalize(), sb.rotulo.capitalize(),
         d.data_extracao, rotular={"SP", "MG", "RJ"},
     )
     texto = (
-        f"{sa.rotulo.capitalize()} e {sb.rotulo} não têm nada a ver.\n\n"
-        f"Mesmo assim andam juntos entre os estados — a linha é quase perfeita. "
-        f"A causa escondida é o tamanho do estado.\n\n"
-        f"Correlação não é causa.\n\n{_fonte(d)}"
+        f"{sa.rotulo.capitalize()} e {sb.rotulo} não têm nada a ver uma com a outra.\n\n"
+        f"Mesmo assim andam juntas entre os estados — a linha é quase perfeita.\n\n"
+        f"Antes que alguém escreva uma tese: é só o tamanho do estado."
     )
     alt = (f"Dispersão por estado de {sa.rotulo} contra {sb.rotulo} em {mes}: "
            f"correlação alta e espúria.")

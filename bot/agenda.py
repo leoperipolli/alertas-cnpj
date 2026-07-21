@@ -1,8 +1,18 @@
-"""Qual corte sai hoje.
+"""Qual corte sai agora.
 
 Estado num JSON commitado — não precisa de banco. A regra é simples: nunca repetir
-um corte enquanto houver corte novo no catálogo, e zerar o catálogo quando chega uma
-extração nova (o dado mudou, então os mesmos cortes voltam a ser notícia).
+um corte enquanto houver corte novo na fila, e zerar tudo quando chega uma extração
+nova (o dado mudou, então os mesmos cortes voltam a ser notícia).
+
+São DUAS filas, sorteadas em horários diferentes do dia:
+
+- `novo`     — os contraintuitivos (per capita, razões, location quotient). Sai de manhã.
+- `classico` — placar, rankings, setores, duelos. Sai à noite.
+
+Duas filas em vez de uma só porque o dia tem dois posts e eles não podem ser do mesmo
+tipo: dois rankings seguidos cansam, e dois "vira a mesa" seguidos gastam o que o
+perfil tem de melhor no dobro da velocidade. Cada fila se esgota e zera por conta
+própria.
 """
 
 import json
@@ -13,7 +23,7 @@ from . import cortes, setores
 ESTADO = Path(__file__).resolve().parent.parent / "data" / "agenda_estado.json"
 
 
-def _contraintuitivos(d) -> list[tuple[str, callable]]:
+def contraintuitivos(d) -> list[tuple[str, callable]]:
     """Os cortes que tiram SP do topo — e por isso vão PRIMEIRO na rotação.
 
     A conta do X é nova: os primeiros posts é que constroem a primeira impressão.
@@ -62,13 +72,73 @@ def _contraintuitivos(d) -> list[tuple[str, callable]]:
             ["padaria"], ["petshop"],
             "Em {lider}, ainda abrem {r} padarias para cada petshop.",
             "O pet vai passar a padaria no seu estado?", piso_den=25)),
+
+        # --- daqui para baixo, a fila que sustenta o mês inteiro a 1 por dia ---
+        # Só setores com volume nacional que aguenta ranking por habitante. Creche (51
+        # aberturas em junho), cervejaria (7) e tatuagem (528) ficam DE FORA: com N
+        # baixo o líder per capita muda por acaso e o post vira ruído.
+        ("percapita|loja-de-roupa",
+         lambda saida: cortes.ranking_per_capita(d, saida, "loja-de-roupa", piso=60)),
+        ("percapita|lanchonete",
+         lambda saida: cortes.ranking_per_capita(d, saida, "lanchonete", piso=40)),
+        ("percapita|padaria",
+         lambda saida: cortes.ranking_per_capita(d, saida, "padaria", piso=35)),
+        ("percapita|food-truck",
+         lambda saida: cortes.ranking_per_capita(d, saida, "food-truck", piso=30)),
+        ("percapita|petshop",
+         lambda saida: cortes.ranking_per_capita(d, saida, "petshop", piso=25)),
+        ("percapita|psicologia",
+         lambda saida: cortes.ranking_per_capita(d, saida, "psicologia", piso=25)),
+
+        ("razao|lanchonete-restaurante", lambda saida: cortes.razao_setores(
+            d, saida, "lanchonete-restaurante",
+            "Lanchonetes por restaurante",
+            "Quantas lanchonetes novas abrem para cada restaurante novo em {mes}",
+            ["lanchonete"], ["restaurante"],
+            "Em {lider}, abrem {r} lanchonetes para cada restaurante.",
+            "Seu estado come em pé ou sentado?", piso_den=40)),
+        ("razao|foodtruck-restaurante", lambda saida: cortes.razao_setores(
+            d, saida, "foodtruck-restaurante",
+            "Food trucks por restaurante",
+            "Quantos food trucks novos abrem para cada restaurante novo em {mes}",
+            ["food-truck"], ["restaurante"],
+            "Em {lider}, abrem {r} food trucks para cada restaurante.",
+            "A rua está ganhando do salão?", piso_den=40)),
+        ("razao|roupa-salao", lambda saida: cortes.razao_setores(
+            d, saida, "roupa-salao",
+            "Lojas de roupa por salão de beleza",
+            "Quantas lojas de roupa novas abrem para cada salão novo em {mes}",
+            ["loja-de-roupa"], ["salao-de-beleza"],
+            "Em {lider}, abrem {r} lojas de roupa para cada salão de beleza.",
+            "Vestir ou cuidar: o que seu estado escolhe?", piso_den=60)),
+
+        # O líder de cada um é DESCOBERTO na hora (ver cortes.lq_hero), então estes
+        # continuam corretos quando a extração mudar quem lidera.
+        ("lqhero|representante", lambda saida: cortes.lq_hero(
+            d, saida, "representante", ["4619200"], "representante comercial")),
+        ("lqhero|maquina-agricola", lambda saida: cortes.lq_hero(
+            d, saida, "maquina-agricola", ["3314711"], "manutenção de máquina agrícola")),
+        ("lqhero|faccao", lambda saida: cortes.lq_hero(
+            d, saida, "faccao", ["1412603"], "facção de roupa")),
+        ("lqhero|calcados", lambda saida: cortes.lq_hero(
+            d, saida, "calcados", ["1531902"], "acabamento de calçados")),
+        ("lqhero|colheita", lambda saida: cortes.lq_hero(
+            d, saida, "colheita", ["0161003"], "serviço de colheita")),
+
+        # Pares sem relação nenhuma: a correlação existe e a causa é boba (o tamanho
+        # do estado). Contagem bruta de propósito — normalizar mataria a piada.
+        ("espuria|petshop-lanchonete", lambda saida: cortes.correlacao_espuria(
+            d, saida, "petshop-lanchonete", "petshop", "lanchonete")),
+        ("espuria|salao-foodtruck", lambda saida: cortes.correlacao_espuria(
+            d, saida, "salao-foodtruck", "salao-de-beleza", "food-truck")),
+        ("espuria|roupa-restaurante", lambda saida: cortes.correlacao_espuria(
+            d, saida, "roupa-restaurante", "loja-de-roupa", "restaurante")),
     ]
 
 
-def catalogo(d) -> list[tuple[str, callable]]:
-    """~45 posts a partir de 12 cortes. É a parametrização que sustenta a cadência diária."""
+def classicos(d) -> list[tuple[str, callable]]:
+    """Placar, rankings, setores e duelos — o corte honesto e direto, sem a virada."""
     itens: list[tuple[str, callable]] = [
-        *_contraintuitivos(d),
         ("placar_nacional", lambda saida: cortes.placar_nacional(d, saida)),
         ("ranking_cnae|BR", lambda saida: cortes.ranking_cnae(d, saida)),
         ("recorte_cidade|BR", lambda saida: cortes.recorte_cidade(d, saida)),
@@ -88,27 +158,43 @@ def catalogo(d) -> list[tuple[str, callable]]:
     return itens
 
 
+FILAS = {"novo": contraintuitivos, "classico": classicos}
+
+
+def catalogo(d) -> list[tuple[str, callable]]:
+    """As duas filas juntas — usado por `run.py --todos` e pela revisão da fila."""
+    return [*contraintuitivos(d), *classicos(d)]
+
+
 def _ler(data_extracao) -> dict:
+    vazio = {"data_extracao": str(data_extracao), "usados": {k: [] for k in FILAS}}
     if not ESTADO.exists():
-        return {"data_extracao": str(data_extracao), "usados": []}
+        return vazio
     est = json.loads(ESTADO.read_text(encoding="utf-8"))
     if est.get("data_extracao") != str(data_extracao):
-        # Extração nova: o catálogo inteiro volta a valer.
-        return {"data_extracao": str(data_extracao), "usados": []}
+        return vazio  # extração nova: as duas filas voltam a valer inteiras
+    # O formato antigo guardava uma lista única (uma fila só, um post por dia).
+    if not isinstance(est.get("usados"), dict):
+        return vazio
+    for nome in FILAS:
+        est["usados"].setdefault(nome, [])
     return est
 
 
-def escolher(d) -> tuple[str, callable, dict]:
-    est = _ler(d.data_extracao)
-    usados = set(est["usados"])
+def escolher(d, fila: str = "novo") -> tuple[str, callable, dict]:
+    if fila not in FILAS:
+        raise ValueError(f"fila desconhecida: {fila!r} (use {sorted(FILAS)})")
 
-    disponiveis = [(k, f) for k, f in catalogo(d) if k not in usados]
-    if not disponiveis:  # deu a volta no catálogo antes da extração nova
-        est["usados"] = []
-        disponiveis = catalogo(d)
+    est = _ler(d.data_extracao)
+    usados = set(est["usados"][fila])
+
+    disponiveis = [(k, f) for k, f in FILAS[fila](d) if k not in usados]
+    if not disponiveis:  # deu a volta nesta fila antes da extração nova
+        est["usados"][fila] = []
+        disponiveis = FILAS[fila](d)
 
     chave, funcao = disponiveis[0]
-    est["usados"] = est["usados"] + [chave]
+    est["usados"][fila] = est["usados"][fila] + [chave]
     return chave, funcao, est
 
 

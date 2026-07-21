@@ -99,4 +99,15 @@ def escolher_publisher() -> Publisher:
         return XPublisher()
     if os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID"):
         return TelegramPublisher()
+
+    # No Actions, cair no fallback local é ERRO, não conveniência: o job terminaria
+    # verde, não publicaria nada, e ainda assim `agenda.registrar` marcaria o corte
+    # como gasto e o commitaria. Em uma semana o catálogo teria sido consumido sem um
+    # único post no ar — e nada no log denunciaria isso. Falhar aqui aciona o e-mail
+    # de falha do GitHub, que é o dead man's switch.
+    if os.environ.get("GITHUB_ACTIONS"):
+        raise RuntimeError(
+            "nenhum canal configurado: faltam os segredos X_API_KEY, X_API_SECRET, "
+            "X_ACCESS_TOKEN e X_ACCESS_SECRET no repositório."
+        )
     return ArquivoPublisher()

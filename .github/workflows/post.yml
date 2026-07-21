@@ -1,9 +1,21 @@
-name: post diario
+name: posts diarios
 
+# Dois posts por dia, de filas diferentes: o contraintuitivo de manha (quando o
+# engajamento e' maior) e o classico a noite. Sao duas entradas de cron porque
+# publicar os dois de uma vez pareceria disparo em lote.
+#
+# Brasilia e' UTC-3 e nao tem mais horario de verao desde 2019, entao a conta e' fixa.
 on:
   schedule:
-    - cron: "0 12 * * *"   # 09:00 em Brasília
+    - cron: "0 11 * * *"   # 08:00 em Brasilia -> fila "novo"
+    - cron: "0 23 * * *"   # 20:00 em Brasilia -> fila "classico"
   workflow_dispatch:        # botao de "rodar agora" na aba Actions
+    inputs:
+      fila:
+        description: "Qual fila publicar"
+        type: choice
+        options: [novo, classico]
+        default: novo
 
 permissions:
   contents: write           # para commitar o estado da agenda
@@ -21,25 +33,48 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - name: Gerar e publicar o corte do dia
+      # O cron nao sabe dizer "quem me disparou", mas o evento carrega a expressao
+      # agendada — e' por ela que se decide a fila.
+      - name: Descobrir a fila deste horario
+        id: fila
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "nome=${{ inputs.fila }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 11 * * *" ]; then
+            echo "nome=novo" >> "$GITHUB_OUTPUT"
+          else
+            echo "nome=classico" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Postar sempre no mesmo minuto e' assinatura de robo, e o X corta alcance de
+      # quem parece automatizado. 0-12 min e' o meio termo: quebra o padrao sem
+      # torrar minutos de Actions (2 execucoes/dia x ~6 min medios ~= 360 min/mes,
+      # dentro dos 2.000 gratuitos de repositorio privado).
+      - name: Esperar um tempo aleatorio
+        if: github.event_name == 'schedule'
+        run: sleep $((RANDOM % 720))
+
+      - name: Gerar e publicar
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
-        run: python -m bot.run
+        run: python -m bot.run --fila "${{ steps.fila.outputs.nome }}"
 
       # A agenda precisa lembrar qual corte ja saiu, senao o bot repete o mesmo
-      # post todo dia. O commit e' o "banco de dados" — e e' o suficiente.
+      # post. O commit e' o "banco de dados" — e e' o suficiente. As duas execucoes
+      # do dia nao se cruzam (08h e 20h), entao nao ha corrida de push.
       - name: Guardar o corte gasto
         run: |
           git config user.name  "bot"
           git config user.email "bot@users.noreply.github.com"
           git add data/agenda_estado.json
-          git diff --staged --quiet || git commit -m "agenda: corte do dia"
+          git diff --staged --quiet || \
+            git commit -m "agenda: corte da fila ${{ steps.fila.outputs.nome }}"
           git push
 
   # Dead man's switch: quando um workflow AGENDADO falha, o GitHub ja manda e-mail
   # automatico para o dono do repo (Settings > Notifications > Actions). Por isso nao
-  # ha job de alerta aqui — o `run: python -m bot.run` sai com codigo != 0 em qualquer
+  # ha job de alerta aqui — o `python -m bot.run` sai com codigo != 0 em qualquer
   # erro (ver bot/run.py) e isso basta para disparar o e-mail nativo.

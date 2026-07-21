@@ -1,8 +1,9 @@
-"""Entrypoint do bot. Roda no GitHub Actions, 1x/dia.
+"""Entrypoint do bot. Roda no GitHub Actions, 2x/dia (uma vez por fila).
 
-    python -m bot.run                 # o corte do dia, publicado
-    python -m bot.run --dry-run       # gera e mostra, sem publicar nem gastar o corte
-    python -m bot.run --todos         # gera o catálogo inteiro em out/ (para revisar)
+    python -m bot.run --fila novo       # um contraintuitivo, publicado (manhã)
+    python -m bot.run --fila classico   # um clássico, publicado (noite)
+    python -m bot.run --dry-run         # gera e mostra, sem publicar nem gastar o corte
+    python -m bot.run --todos           # gera as duas filas em out/ (para revisar)
 """
 
 import argparse
@@ -15,12 +16,13 @@ from . import agenda, dados, publish
 SAIDA = Path(__file__).resolve().parent.parent / "out"
 
 
-def um(dry_run: bool) -> int:
+def um(dry_run: bool, fila: str) -> int:
     d = dados.abrir()
     SAIDA.mkdir(parents=True, exist_ok=True)
 
-    chave, funcao, estado = agenda.escolher(d)
-    print(f"corte: {chave}  (extracao {d.data_extracao}, mes {d.mes_ref:%Y-%m})")
+    chave, funcao, estado = agenda.escolher(d, fila)
+    print(f"corte: {chave}  (fila {fila}, extracao {d.data_extracao}, "
+          f"mes {d.mes_ref:%Y-%m})")
     post = funcao(SAIDA)
 
     print("\n" + "-" * 60)
@@ -61,9 +63,11 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--todos", action="store_true")
+    p.add_argument("--fila", choices=sorted(agenda.FILAS), default="novo",
+                   help="qual fila sortear (o workflow define pelo horário)")
     args = p.parse_args()
     try:
-        sys.exit(todos() if args.todos else um(args.dry_run))
+        sys.exit(todos() if args.todos else um(args.dry_run, args.fila))
     except Exception:
         traceback.print_exc()
         sys.exit(1)  # falha visível: o Actions notifica (dead man's switch)

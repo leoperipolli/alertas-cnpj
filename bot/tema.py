@@ -6,6 +6,8 @@ a imagem tem que ter a própria superfície e funcionar nos dois. Escolhemos a s
 clara, que é a validada com maior margem de separação para daltonismo.
 """
 
+import re
+from collections import Counter
 from pathlib import Path
 
 from matplotlib import font_manager as fm
@@ -111,11 +113,81 @@ def barra_horizontal(ax, y: float, valor: float, cor: str,
 def encurtar(texto: str, maximo: int = 34) -> str:
     """Corta no limite de palavra. Descrição oficial de CNAE é impronunciável
     ('Fornecimento de alimentos preparados preponderantemente para consumo
-    domiciliar') e ninguém lê isso num gráfico."""
+    domiciliar') e ninguém lê isso num gráfico.
+
+    Para rótulo de EIXO prefira `rotulos_distintos` + `quebrar_rotulos`: cortar no
+    caractere apaga justamente o fim, que é onde a descrição da Receita costuma
+    guardar o que diferencia um CNAE do outro.
+    """
     if len(texto) <= maximo:
         return texto
     corte = texto[:maximo].rsplit(" ", 1)[0]
     return (corte or texto[:maximo]).rstrip(",;") + "…"
+
+
+# A descrição da Receita é formulaica: o miolo informativo vem primeiro e o rabo é
+# jurídico ("não especificados anteriormente", "exceto produtos perigosos e mudanças").
+# Tirar o rabo devolve espaço sem perder sentido.
+_SEM_ESPEC = re.compile(r"\s*,?\s*n[ãa]o especificad[oa]s?\s+anteriormente", re.I)
+_EXCETO = re.compile(r",\s*exceto\s+[^,]+?(?=,|$)", re.I)
+
+
+def _variantes(texto: str) -> list[str]:
+    """Da mais curta para a mais completa."""
+    completo = texto.strip().rstrip(". ")
+    sem_espec = _SEM_ESPEC.sub("", completo).strip().rstrip(",. ")
+    sem_exceto = _EXCETO.sub("", sem_espec).strip().rstrip(",. ")
+    return [sem_exceto, sem_espec, completo]
+
+
+def limpar(texto: str) -> str:
+    """Tira o rabo burocrático da descrição da Receita, sem quebrar linha.
+    Para onde há uma linha só e espaço horizontal (o card em lista)."""
+    return _variantes(texto)[0]
+
+
+def rotulos_distintos(textos: list[str]) -> list[str]:
+    """Encurta as descrições MAS garante que continuem diferentes entre si.
+
+    Existe por um bug real: os dois maiores CNAEs de transporte são
+    "...de carga, exceto produtos perigosos e mudanças, MUNICIPAL" e
+    "...INTERMUNICIPAL, INTERESTADUAL E INTERNACIONAL". Cortados no caractere,
+    viram o mesmo rótulo — e o gráfico mostra duas barras iguais com números
+    diferentes, que é pior do que um rótulo comprido.
+
+    Então: aplica-se a forma mais curta e, se duas colidirem, só as colididas
+    sobem para uma forma mais completa até se separarem.
+    """
+    if not textos:
+        return []
+    variantes = [_variantes(t) for t in textos]
+    escolha = [v[0] for v in variantes]
+    for _ in range(len(variantes[0])):
+        repetidos = {t for t, c in Counter(escolha).items() if c > 1}
+        if not repetidos:
+            break
+        for i, v in enumerate(variantes):
+            if escolha[i] in repetidos:
+                escolha[i] = v[min(v.index(escolha[i]) + 1, len(v) - 1)]
+    return escolha
+
+
+def quebrar_rotulos(fig, textos: list[str], fontsize: int = 13,
+                    alvo_frac: float = 0.28, max_linhas: int = 2) -> list[str]:
+    """Quebra cada rótulo em até `max_linhas` linhas em vez de truncar.
+
+    Duas linhas dão ~2x o texto pelo preço de altura que a faixa da barra já tem
+    sobrando. Só quem estoura as duas linhas é que leva reticências.
+    """
+    limite = alvo_frac * LARGURA_PX
+    saida = []
+    for t in textos:
+        linhas = envolver(fig, t, fontsize, limite_px=limite)
+        if len(linhas) > max_linhas:
+            linhas = linhas[:max_linhas]
+            linhas[-1] = linhas[-1].rstrip(",; ") + "…"
+        saida.append("\n".join(linhas))
+    return saida
 
 
 def _largura_px(fig, texto: str, fontsize: int) -> float:
@@ -132,21 +204,26 @@ def eixos_com_rotulos(fig, rotulos: list[str], fontsize: int = 13, altura: float
     Margem fixa faz o rótulo longo ser cortado pela borda — e um rótulo cortado é
     pior do que rótulo nenhum. Aqui a margem é medida no renderer, não chutada.
     """
-    maior = max((_largura_px(fig, r, fontsize) for r in rotulos), default=0)
+    # Mede LINHA a linha: com rótulo quebrado em duas, a largura que importa é a da
+    # maior linha, não a do texto inteiro.
+    maior = max((_largura_px(fig, linha, fontsize)
+                 for r in rotulos for linha in r.split("\n")), default=0)
     esquerda = (0.055 * LARGURA_PX + maior + 16) / LARGURA_PX
     esquerda = min(esquerda, 0.46)  # teto: sobrou pouco para a barra, o gráfico morre
     return fig.add_axes([esquerda, 0.13, 0.975 - esquerda, altura])
 
 
-def envolver(fig, texto: str, fontsize: int, max_frac: float = 0.89) -> list[str]:
-    """Quebra `texto` em linhas que cabem em `max_frac` da largura da figura.
+def envolver(fig, texto: str, fontsize: int, max_frac: float = 0.89,
+             limite_px: float | None = None) -> list[str]:
+    """Quebra `texto` em linhas que cabem em `max_frac` da largura da figura
+    (ou em `limite_px`, quando o orçamento é uma coluna e não a figura toda).
 
     `fig.text` não quebra linha sozinho: texto longo simplesmente sai pela borda
     direita da imagem (e sair pela borda é pior do que texto menor). A quebra é
     medida no renderer, não chutada por número de caracteres, porque a largura de um
     caractere depende da fonte.
     """
-    limite = max_frac * LARGURA_PX
+    limite = limite_px if limite_px is not None else max_frac * LARGURA_PX
     linhas: list[str] = []
     atual = ""
     for palavra in texto.split():

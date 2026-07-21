@@ -23,6 +23,20 @@ def _fmt(n: float) -> str:
     return f"{round(n):,}".replace(",", ".")
 
 
+def _rotular(fig, brutos: list[str]) -> tuple[list[str], int]:
+    """Rótulos do eixo + o corpo de fonte que eles pedem.
+
+    Rótulo de duas linhas em oito faixas encosta um no outro: a faixa tem ~76px de
+    altura e duas linhas de 13pt não cabem. Quando alguma quebra, todo o eixo desce
+    para 11pt — o que, de quebra, faz várias voltarem a caber em uma linha só.
+    """
+    curtos = tema.rotulos_distintos(brutos)
+    em_13 = tema.quebrar_rotulos(fig, curtos, fontsize=13, alvo_frac=0.32)
+    if not any("\n" in r for r in em_13):
+        return em_13, 13
+    return tema.quebrar_rotulos(fig, curtos, fontsize=11, alvo_frac=0.32), 11
+
+
 def fmt_decimal(casas: int = 1) -> Callable[[float], str]:
     """Formatador para valores fracionários (per capita, razões): '3,0', '5,8'.
     Vírgula decimal porque o público é brasileiro."""
@@ -47,30 +61,34 @@ def ranking(
     fig = tema.nova_figura()
 
     itens = sorted(itens, key=lambda t: t[1], reverse=True)
-    itens = [(tema.encurtar(r), v) for r, v in itens]
-    if destaque is not None:
-        destaque = tema.encurtar(destaque)
-    maximo = max(v for _, v in itens) or 1
-    ax = tema.eixos_com_rotulos(fig, [r for r, _ in itens])
+    brutos = [r for r, _ in itens]
+    valores = [v for _, v in itens]
+
+    # O destaque é resolvido por ÍNDICE, sobre o rótulo original. Comparar o texto já
+    # encurtado dependia de os dois passarem pela mesma regra de corte — e passou a
+    # ser impossível quando o encurtamento virou quebra de linha.
+    idx_destaque = brutos.index(destaque) if destaque in brutos else None
+
+    rotulos, corpo = _rotular(fig, brutos)
+    maximo = max(valores) or 1
+    ax = tema.eixos_com_rotulos(fig, rotulos, fontsize=corpo)
 
     # Os limites vêm ANTES das barras: a espessura da barra é medida em pixels, e
     # sem os limites fixados a conversão pixel->dado usa a escala errada.
     ax.set_yticks(range(len(itens)))
-    ax.set_yticklabels([r for r, _ in reversed(itens)], fontsize=13)
+    ax.set_yticklabels(list(reversed(rotulos)), fontsize=corpo, linespacing=1.05)
     ax.tick_params(axis="y", length=0, pad=10)
     ax.set_xticks([])
     ax.set_xlim(0, maximo * 1.16)   # folga para o rótulo na ponta não estourar
     ax.set_ylim(-0.7, len(itens) - 0.3)
     px_x, px_y = tema.escala(ax)
 
-    for i, (rotulo, valor) in enumerate(itens):
-        y = len(itens) - 1 - i  # maior em cima
-        cor = tema.SERIE_1
-        if destaque is not None:
-            cor = tema.SERIE_1 if rotulo == destaque else tema.APAGADO
+    for i, valor in enumerate(valores):
+        y = len(valores) - 1 - i  # maior em cima
+        forte = idx_destaque is None or i == idx_destaque
+        cor = tema.SERIE_1 if forte else tema.APAGADO
         tema.barra_horizontal(ax, y, valor, cor, px_x, px_y)
 
-        forte = destaque is None or rotulo == destaque
         ax.text(valor + maximo * 0.012, y, fmt(valor),
                 va="center", ha="left", fontsize=13,
                 color=tema.TINTA if forte else tema.MUDO,
@@ -99,14 +117,14 @@ def comparacao(
     """
     fig = tema.nova_figura()
 
-    categorias = [tema.encurtar(c) for c in categorias]
+    rotulos, corpo = _rotular(fig, categorias)
     nome_a, vals_a = serie_a
     nome_b, vals_b = serie_b
     maximo = max([*vals_a, *vals_b]) or 1
-    ax = tema.eixos_com_rotulos(fig, categorias, altura=0.66)
+    ax = tema.eixos_com_rotulos(fig, rotulos, fontsize=corpo, altura=0.66)
 
     ax.set_yticks(range(len(categorias)))
-    ax.set_yticklabels(list(reversed(categorias)), fontsize=13)
+    ax.set_yticklabels(list(reversed(rotulos)), fontsize=corpo, linespacing=1.05)
     ax.tick_params(axis="y", length=0, pad=10)
     ax.set_xticks([])
     ax.set_xlim(0, maximo * 1.16)
@@ -208,8 +226,8 @@ def lista_cartao(
     ys = [inicio - passo * i for i in range(len(linhas))]
     for (esq, meio, val), y in zip(linhas, ys):
         fig.text(0.055, y, esq, fontsize=17, weight=600, color=tema.TINTA, va="center")
-        fig.text(0.135, y, tema.encurtar(meio, 44), fontsize=15, color=tema.TINTA_2,
-                 va="center")
+        fig.text(0.135, y, tema.encurtar(tema.limpar(meio), 48), fontsize=15,
+                 color=tema.TINTA_2, va="center")
         fig.text(0.945, y, val, fontsize=17, weight=600, color=tema.SERIE_1,
                  va="center", ha="right")
 

@@ -209,12 +209,16 @@ def anomalia(d: D.Dados, saida: Path) -> Post:
     plausiveis = [l for l in linhas if l[3] <= TETO_RECLASSIFICACAO] or linhas
     cnae, agora, antes, var = plausiveis[0]
 
+    # As barras mostram a VARIAÇÃO, não o volume: com volume absoluto o setor
+    # destacado aparecia menor que os outros e o gráfico contradizia o próprio
+    # título ("o que mais acelerou" com a barra do herói no meio da lista).
     img = render.ranking(
         saida / "anomalia.png",
         f"O setor que mais acelerou em {mes}",
-        f"+{var:.0f}% de aberturas contra o mês anterior",
-        [(c, n) for c, n, _, _ in plausiveis], d.data_extracao,
-        destaque=cnae,  # render encurta os dois com a mesma regra, então casa
+        "Crescimento das aberturas contra o mês anterior",
+        [(c, v) for c, _, _, v in plausiveis], d.data_extracao,
+        destaque=cnae,
+        fmt=lambda v: f"+{v:.0f}%",
     )
     texto = (
         f"O setor que mais acelerou em {mes}:\n\n"

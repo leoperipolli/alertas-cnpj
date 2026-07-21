@@ -173,29 +173,37 @@ def rotulos_distintos(textos: list[str]) -> list[str]:
 
 
 def quebrar_rotulos(fig, textos: list[str], fontsize: int = 13,
-                    alvo_frac: float = 0.28, max_linhas: int = 2) -> list[str]:
-    """Quebra cada rótulo em até `max_linhas` linhas em vez de truncar.
+                    alvo_frac: float = 0.32) -> list[str]:
+    """Quebra cada rótulo em quantas linhas forem precisas. NUNCA trunca.
 
-    Duas linhas dão ~2x o texto pelo preço de altura que a faixa da barra já tem
-    sobrando. Só quem estoura as duas linhas é que leva reticências.
+    Rótulo cortado é rótulo que mente: a descrição da Receita guarda no fim
+    justamente o que separa um CNAE do outro. Quando o texto inteiro não cabe na
+    altura disponível, quem cede é a QUANTIDADE DE BARRAS (ver `render._ajustar`),
+    nunca o texto.
     """
     limite = alvo_frac * LARGURA_PX
-    saida = []
-    for t in textos:
-        linhas = envolver(fig, t, fontsize, limite_px=limite)
-        if len(linhas) > max_linhas:
-            linhas = linhas[:max_linhas]
-            linhas[-1] = linhas[-1].rstrip(",; ") + "…"
-        saida.append("\n".join(linhas))
-    return saida
+    return ["\n".join(envolver(fig, t, fontsize, limite_px=limite)) for t in textos]
 
 
 def _largura_px(fig, texto: str, fontsize: int) -> float:
-    t = fig.text(0, 0, texto, fontsize=fontsize)
-    fig.canvas.draw()
-    largura = t.get_window_extent(renderer=fig.canvas.get_renderer()).width
-    t.remove()
-    return largura
+    """Largura do texto em pixels, medida no renderer.
+
+    O `canvas.draw()` redesenha a figura INTEIRA e custa dezenas de ms. Como a quebra
+    de rótulo mede uma vez por palavra, desenhar a cada medição fazia o catálogo levar
+    minutos (e o mesmo custo cairia no Actions todo dia). O renderer é o mesmo durante
+    a vida da figura, então basta obtê-lo uma vez e guardar; as medidas também são
+    memorizadas por (texto, corpo).
+    """
+    cache = getattr(fig, "_medidas", None)
+    if cache is None:
+        fig.canvas.draw()
+        cache = fig._medidas = {"__renderer__": fig.canvas.get_renderer()}
+    chave = (texto, fontsize)
+    if chave not in cache:
+        t = fig.text(0, 0, texto, fontsize=fontsize)
+        cache[chave] = t.get_window_extent(renderer=cache["__renderer__"]).width
+        t.remove()
+    return cache[chave]
 
 
 def eixos_com_rotulos(fig, rotulos: list[str], fontsize: int = 13, altura: float = 0.68):

@@ -23,18 +23,35 @@ def _fmt(n: float) -> str:
     return f"{round(n):,}".replace(",", ".")
 
 
-def _rotular(fig, brutos: list[str]) -> tuple[list[str], int]:
-    """Rótulos do eixo + o corpo de fonte que eles pedem.
+MINIMO_BARRAS = 5  # abaixo disso o ranking deixa de ser ranking
 
-    Rótulo de duas linhas em oito faixas encosta um no outro: a faixa tem ~76px de
-    altura e duas linhas de 13pt não cabem. Quando alguma quebra, todo o eixo desce
-    para 11pt — o que, de quebra, faz várias voltarem a caber em uma linha só.
+
+def _ajustar(fig, brutos: list[str], valores: list[float], altura_frac: float):
+    """Acha quantas barras cabem com o rótulo INTEIRO — e devolve só essas.
+
+    A regra é: o texto nunca encolhe nem some em reticências; quem cede é a
+    quantidade de itens. Um rótulo de duas linhas precisa de ~2x a altura de faixa,
+    e oito faixas não têm essa altura — então o ranking mostra seis, ou cinco.
+
+    Descartar item é a ÚLTIMA concessão, não a primeira. Antes disso tenta, nesta
+    ordem: reduzir o corpo da fonte (13 → 11) e alargar a coluna de rótulos (32% →
+    38% da largura, o limite antes de a barra ficar curta demais). Só quando nada
+    disso resolve é que a cauda cai.
     """
-    curtos = tema.rotulos_distintos(brutos)
-    em_13 = tema.quebrar_rotulos(fig, curtos, fontsize=13, alvo_frac=0.32)
-    if not any("\n" in r for r in em_13):
-        return em_13, 13
-    return tema.quebrar_rotulos(fig, curtos, fontsize=11, alvo_frac=0.32), 11
+    tentativas = ((13, 0.32), (12, 0.32), (12, 0.38), (11, 0.32), (11, 0.38))
+    while True:
+        curtos = tema.rotulos_distintos(brutos)
+        faixa_px = altura_frac * tema.ALTURA_PX / len(brutos)
+        for corpo, alvo in tentativas:
+            rotulos = tema.quebrar_rotulos(fig, curtos, fontsize=corpo, alvo_frac=alvo)
+            linhas = max(r.count("\n") + 1 for r in rotulos)
+            # altura de uma linha em px = corpo(pt) * DPI/72, com folga para o leading
+            preciso_px = linhas * corpo * (tema.DPI / 72) * 1.18
+            if preciso_px <= faixa_px:
+                return brutos, valores, rotulos, corpo
+        if len(brutos) <= MINIMO_BARRAS:
+            return brutos, valores, rotulos, 11  # piso: aceita apertado
+        brutos, valores = brutos[:-1], valores[:-1]
 
 
 def fmt_decimal(casas: int = 1) -> Callable[[float], str]:
@@ -52,35 +69,39 @@ def ranking(
     destaque: str | None = None,
     fmt: Callable[[float], str] = _fmt,
     fonte_extra: str | None = None,
+    altura: float = 0.68,
 ) -> Path:
     """Barras horizontais, uma cor. `destaque` apaga o resto e realça um item.
 
     `fmt` formata o rótulo do valor (inteiro por padrão; use `fmt_decimal()` no
     per capita/razão). `fonte_extra` acrescenta uma segunda fonte no crédito.
+
+    ATENÇÃO: pode desenhar MENOS itens do que recebeu. Rótulo não é truncado; se os
+    oito não couberem com o texto inteiro, o gráfico mostra os seis maiores. Por isso
+    nenhum texto-alt deve enumerar todos os itens (ver `_ajustar`).
     """
     fig = tema.nova_figura()
 
     itens = sorted(itens, key=lambda t: t[1], reverse=True)
-    brutos = [r for r, _ in itens]
-    valores = [v for _, v in itens]
+    brutos, valores, rotulos, corpo = _ajustar(
+        fig, [r for r, _ in itens], [v for _, v in itens], altura)
 
     # O destaque é resolvido por ÍNDICE, sobre o rótulo original. Comparar o texto já
     # encurtado dependia de os dois passarem pela mesma regra de corte — e passou a
     # ser impossível quando o encurtamento virou quebra de linha.
     idx_destaque = brutos.index(destaque) if destaque in brutos else None
 
-    rotulos, corpo = _rotular(fig, brutos)
     maximo = max(valores) or 1
-    ax = tema.eixos_com_rotulos(fig, rotulos, fontsize=corpo)
+    ax = tema.eixos_com_rotulos(fig, rotulos, fontsize=corpo, altura=altura)
 
     # Os limites vêm ANTES das barras: a espessura da barra é medida em pixels, e
     # sem os limites fixados a conversão pixel->dado usa a escala errada.
-    ax.set_yticks(range(len(itens)))
+    ax.set_yticks(range(len(valores)))
     ax.set_yticklabels(list(reversed(rotulos)), fontsize=corpo, linespacing=1.05)
     ax.tick_params(axis="y", length=0, pad=10)
     ax.set_xticks([])
     ax.set_xlim(0, maximo * 1.16)   # folga para o rótulo na ponta não estourar
-    ax.set_ylim(-0.7, len(itens) - 0.3)
+    ax.set_ylim(-0.7, len(valores) - 0.3)
     px_x, px_y = tema.escala(ax)
 
     for i, valor in enumerate(valores):
@@ -117,9 +138,13 @@ def comparacao(
     """
     fig = tema.nova_figura()
 
-    rotulos, corpo = _rotular(fig, categorias)
     nome_a, vals_a = serie_a
     nome_b, vals_b = serie_b
+    # Duas séries por faixa: cada categoria come o dobro de altura, então cabe menos.
+    # `_ajustar` corta a cauda; as duas séries têm que ser cortadas junto.
+    categorias, vals_a, rotulos, corpo = _ajustar(fig, categorias, vals_a, 0.66 / 2)
+    vals_b = vals_b[:len(categorias)]
+
     maximo = max([*vals_a, *vals_b]) or 1
     ax = tema.eixos_com_rotulos(fig, rotulos, fontsize=corpo, altura=0.66)
 

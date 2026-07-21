@@ -176,11 +176,12 @@ def duelo_regional(d: D.Dados, saida: Path, uf_a: str, uf_b: str) -> Post:
     img = render.comparacao(
         saida / f"duelo_{uf_a}_{uf_b}.png",
         f"{uf_a} x {uf_b}: o que cada um abriu em {mes}",
-        f"Os 5 setores que mais abriram em {uf_a}, comparados com {uf_b}",
+        # Sem número fixo: o render pode desenhar menos itens para não cortar rótulo.
+        f"Os setores que mais abriram em {uf_a}, comparados com {uf_b}",
         cats, (uf_a, vals_a), (uf_b, vals_b), d.data_extracao,
     )
     texto = (
-        f"{uf_a} x {uf_b} em {mes}: os cinco setores que mais abriram em {uf_a}, "
+        f"{uf_a} x {uf_b} em {mes}: os setores que mais abriram em {uf_a}, "
         f"e quanto {uf_b} abriu de cada um.\n\n"
         f"Quem você achava que abriria mais?\n\n{_fonte(d)}"
     )

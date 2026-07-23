@@ -5,7 +5,8 @@
       "percapita|total"
     ],
     "classico": [
-      "placar_nacional"
+      "placar_nacional",
+      "ranking_cnae|BR"
     ]
   }
 }

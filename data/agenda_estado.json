@@ -2,7 +2,8 @@
   "data_extracao": "2026-07-11",
   "usados": {
     "novo": [
-      "percapita|total"
+      "percapita|total",
+      "percapita|bar"
     ],
     "classico": [
       "placar_nacional",

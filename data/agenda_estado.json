@@ -16,7 +16,8 @@
       "razao|padaria-petshop",
       "percapita|loja-de-roupa",
       "percapita|lanchonete",
-      "percapita|padaria"
+      "percapita|padaria",
+      "percapita|food-truck"
     ],
     "classico": [
       "placar_nacional",

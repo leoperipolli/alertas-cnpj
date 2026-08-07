@@ -17,7 +17,8 @@
       "percapita|loja-de-roupa",
       "percapita|lanchonete",
       "percapita|padaria",
-      "percapita|food-truck"
+      "percapita|food-truck",
+      "percapita|petshop"
     ],
     "classico": [
       "placar_nacional",

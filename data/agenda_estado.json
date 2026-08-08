@@ -39,7 +39,8 @@
       "setor|loja-de-roupa",
       "setor|psicologia",
       "setor|cervejaria",
-      "ranking_cnae|SP"
+      "ranking_cnae|SP",
+      "recorte_cidade|SP"
     ]
   }
 }

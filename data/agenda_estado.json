@@ -20,7 +20,8 @@
       "percapita|food-truck",
       "percapita|petshop",
       "percapita|psicologia",
-      "razao|lanchonete-restaurante"
+      "razao|lanchonete-restaurante",
+      "razao|foodtruck-restaurante"
     ],
     "classico": [
       "placar_nacional",

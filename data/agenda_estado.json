@@ -23,7 +23,8 @@
       "razao|lanchonete-restaurante",
       "razao|foodtruck-restaurante",
       "razao|roupa-salao",
-      "lqhero|representante"
+      "lqhero|representante",
+      "lqhero|maquina-agricola"
     ],
     "classico": [
       "placar_nacional",

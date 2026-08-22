@@ -3,7 +3,8 @@
   "usados": {
     "novo": [
       "percapita|total",
-      "percapita|bar"
+      "percapita|bar",
+      "assinatura"
     ],
     "classico": [
       "placar_nacional",

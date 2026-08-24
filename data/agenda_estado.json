@@ -9,40 +9,7 @@
       "lqhero|taxi"
     ],
     "classico": [
-      "placar_nacional",
-      "ranking_cnae|BR",
-      "recorte_cidade|BR",
-      "anomalia",
-      "setor|padaria",
-      "setor|salao-de-beleza",
-      "setor|petshop",
-      "setor|academia",
-      "setor|lanchonete",
-      "setor|restaurante",
-      "setor|bar",
-      "setor|food-truck",
-      "setor|tatuagem",
-      "setor|creche",
-      "setor|loja-de-roupa",
-      "setor|psicologia",
-      "setor|cervejaria",
-      "ranking_cnae|SP",
-      "recorte_cidade|SP",
-      "ranking_cnae|MG",
-      "recorte_cidade|MG",
-      "ranking_cnae|RJ",
-      "recorte_cidade|RJ",
-      "ranking_cnae|BA",
-      "recorte_cidade|BA",
-      "ranking_cnae|PR",
-      "recorte_cidade|PR",
-      "ranking_cnae|RS",
-      "recorte_cidade|RS",
-      "duelo|SPxRJ",
-      "duelo|MGxBA",
-      "duelo|RSxPR",
-      "duelo|PExCE",
-      "duelo|SCxGO"
+      "placar_nacional"
     ]
   }
 }

@@ -10,7 +10,8 @@
       "percapita|salao-de-beleza"
     ],
     "classico": [
-      "placar_nacional"
+      "placar_nacional",
+      "ranking_cnae|BR"
     ]
   }
 }

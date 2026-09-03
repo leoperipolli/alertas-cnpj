@@ -15,7 +15,8 @@
       "percapita|academia",
       "razao|padaria-petshop",
       "percapita|loja-de-roupa",
-      "percapita|lanchonete"
+      "percapita|lanchonete",
+      "percapita|padaria"
     ],
     "classico": [
       "placar_nacional",

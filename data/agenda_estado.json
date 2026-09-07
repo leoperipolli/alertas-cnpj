@@ -19,7 +19,8 @@
       "percapita|padaria",
       "percapita|food-truck",
       "percapita|petshop",
-      "percapita|psicologia"
+      "percapita|psicologia",
+      "razao|lanchonete-restaurante"
     ],
     "classico": [
       "placar_nacional",

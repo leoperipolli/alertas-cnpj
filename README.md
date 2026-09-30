@@ -1,67 +1,57 @@
-# Alertas de CNPJ — etapas 1 a 3
+# alertas-cnpj
 
-Pipeline que transforma o dump mensal dos Dados Abertos CNPJ da Receita Federal em
-agregados confiáveis, e um bot que gera um post por dia a partir deles.
+A data pipeline over Brazil's open company registry (Receita Federal's *Dados Abertos CNPJ*) and a bot that turns it into two chart posts a day about new businesses: which states, cities and sectors are opening the most companies.
 
-Produto completo especificado em [02-monitor-cnpj-dev.md](02-monitor-cnpj-dev.md).
-Estas três etapas existem antes do produto pago porque **o bot é o relógio mais lento**
-(audiência acumula em tempo de calendário, código não) e porque **o bot constrói o ETL**
-que o produto pago vai usar.
+## The problem
 
-## Onde as coisas moram
+The Receita Federal publishes the full CNPJ registry once a month: about 6 GB of zipped CSVs with tens of millions of records, with no API and a layout that changes from time to time. The data answers good questions ("where are the most pet shops opening?"), but it is too big to open in a spreadsheet and easy to read wrong.
 
-| O quê | Onde | Por quê |
-|---|---|---|
-| Código | este repo (OneDrive) | pequeno, versionado |
-| Zips + CSVs (~26 GB) | `C:\cnpj-data` (env `CNPJ_DATA_DIR`) | **fora do OneDrive**, senão ele sincroniza 26 GB para a nuvem |
-| `data/agregados.parquet` | commitado no git | é a única coisa que o bot lê — por isso ele não precisa de banco nem de VPS |
+## How it works
 
-## Rodar
-
-```bash
-# 1x/mês, no PC (a Receita publica lá pelo dia 13)
-python -m etl.download   --extracao 2026-06     # ~6,4 GB, resumível; Sócios NUNCA é baixado
-python -m etl.agregados  --extracao 2026-06     # extrai, filtra, agrega -> data/agregados.parquet
-python -m etl.sanity     --extracao 2026-06     # OBRIGATÓRIO: ver abaixo
-git add data/agregados.parquet && git commit -m "extracao 2026-06"
-
-# o bot (roda sozinho no GitHub Actions, 1x/dia)
-python -m bot.run --dry-run    # mostra o corte do dia sem publicar nem gastá-lo
-python -m bot.run --todos      # gera o catálogo inteiro em out/ para você revisar
+```mermaid
+flowchart LR
+    RF[Receita Federal<br/>monthly dump] -->|resumable download| ETL[ETL<br/>DuckDB on local CSVs]
+    ETL --> SAN{sanity checks}
+    SAN -->|pass| AGG[(weekly aggregate<br/>parquet, in git)]
+    AGG --> BOT[bot<br/>GitHub Actions, 2x/day]
+    BOT --> R[chart render<br/>matplotlib]
+    R --> PUB[X / Telegram]
 ```
 
-## Os sanity checks não são opcionais
+**Monthly ETL, run locally**
+- Downloads the monthly extraction with HTTP Range requests, so a dropped connection resumes instead of restarting.
+- Registers DuckDB views over the raw CSVs, reads everything as text and casts in SQL. Letting the engine guess types is how a silent layout change turns into bad data.
+- Keeps only newly opened, active companies and aggregates them by week × state × city × CNAE (sector).
+- Writes a small parquet file that is committed to the repo. That file is the only thing the bot reads, so the bot needs no database or server.
 
-O risco destas etapas não é o código quebrar — é **o código funcionar e estar errado**,
-e você postar número errado por 60 dias antes de alguém reparar. `etl/sanity.py` existe
-para tornar isso improvável. Os dois que mais importam:
+**Daily bot, on GitHub Actions**
+- Two cron runs a day, each drawing from its own queue: a "counterintuitive" post in the morning and a "classic" ranking in the evening.
+- One monthly dataset feeds a daily schedule through a catalog of parameterized *cuts* (ranking by state, per capita, by sector, by city…). A JSON state file, committed back by the workflow, makes sure no cut repeats until the queue is empty, and the queue resets when new data arrives.
+- Renders each post as a PNG chart and publishes through a `Publisher` interface: X, Telegram, or a local file, depending on which secrets are set.
 
-- **Ordem de grandeza.** O Brasil abre ~300–400 mil empresas/mês. Se o filtro devolver
-  3 milhões ou 3 mil, o parse está errado. Este check sozinho pega a maioria dos erros.
-- **Armadilha da reativação.** Uma empresa suspensa que voltou à ativa tem
-  `data_situacao_cadastral` recente e `data_inicio_atividade` antiga — **ela não é nova**.
-  O filtro ancora em `data_inicio_atividade` por isso. Um contador que receber empresa de
-  2019 numa lista de "abriram essa semana" cancela na hora.
+## Data quality
 
-Na primeira carga de cada mês, faça também o **spot-check**: o check imprime 5 CNPJs;
-confira num site público de CNPJ que existem, estão ativos e abriram na data indicada.
-É o único teste que valida o pipeline inteiro ponta a ponta.
+The main risk is not code that crashes. It is code that runs and is wrong, and nobody notices for weeks. `etl/sanity.py` has hard checks that stop the pipeline and soft checks that print numbers to review:
 
-## Decisões que valem saber
+- **Order of magnitude:** Brazil opens roughly 300–400k companies a month. A result far off that range means the parse broke.
+- **Reactivation trap:** a suspended company that becomes active again has a recent status date but an old opening date. It is not new, so the filter uses the opening date.
+- **Partial weeks:** the last week before the monthly cutoff is incomplete and never goes into a post, so the bot never reports a fake 60% drop.
+- **Spot check:** sample CNPJs are printed so they can be checked against a public registry lookup.
 
-- **A API do X é paga desde fev/2026** (pay-per-use, créditos pré-pagos — o free tier
-  acabou). Então a v1 publica no seu **Telegram** e você copia e cola no X.
-  `bot/publish.py` tem a interface `Publisher`; trocar por `XPublisher` depois é um
-  arquivo, não uma refatoração.
-- **O dado é mensal, o post é diário.** Logo o bot não é um feed de novidades: é um
-  catálogo de cortes parametrizados sobre a mesma extração. 6 cortes × (UF, CNAE,
-  cidade) = **34 posts** sem repetir.
-- **Nome amigável de CNAE é mapa curado, não busca por texto** (`bot/setores.py`).
-  Não existe CNAE "barbearia" nem "pizzaria" — existe "Cabeleireiros, manicure e
-  pedicure". Buscar por texto falha justamente nas palavras que fazem o post ser
-  compartilhado.
-- **Sócios nunca é baixado** (`etl/layout/`, allowlist explícita). Não dá para vazar o
-  que nunca se teve. `etl/sanity.py` falha se um arquivo de Sócios aparecer em disco.
-- **Semana parcial nunca vai para o post.** A semana em que a Receita cortou a extração
-  está incompleta; postar "as aberturas caíram 60%" quando faltam 4 dias de dado é o
-  jeito mais rápido de destruir a credibilidade que o bot existe para construir.
+## Design decisions
+
+- **No personal data by construction.** The partners (*Sócios*) file is never downloaded. It is left out of the layout allowlist, and a check fails if one shows up on disk.
+- **Curated sector names.** Official CNAE descriptions never use everyday words: there is no CNAE for "barbershop" or "pizzeria". A hand-made map links friendly names to codes, because text search fails on exactly the words people share.
+- **Per capita cuts** use 2022 IBGE census population, so the charts aren't always led by São Paulo.
+- **Charts built for the feed:** a single color per series, a light surface that works in both light and dark themes, and colorblind-safe contrast.
+
+## Stack
+
+Python 3.12 · DuckDB · Parquet · matplotlib · GitHub Actions (cron) · X API (tweepy) / Telegram Bot API
+
+## Structure
+
+- `etl/`: download, load, new-company filter, weekly aggregate, sanity checks, layout per registry version
+- `bot/`: cut catalog, scheduling queue, data access, chart theme and render, publishers
+- `data/`: the committed aggregate and the queue state
+- `.github/workflows/post.yml`: the two daily runs
